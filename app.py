@@ -316,7 +316,7 @@ def create_form():
 
                 # Если ответ был отмечен звездочкой, добавляем его в правильные
                 if is_correct:
-                    correct_answers.append(answer_text)
+                    correct_answers.append({"value": answer_text})
                     correct_indices.append(i)
 
             # Определяем тип вопроса в зависимости от количества правильных ответов
@@ -401,31 +401,31 @@ def create_form():
                             pass
                         correct_answers.append({"value": answer_text})
 
-            # Если есть правильные ответы
-            if correct_answers:
-                grade_request = {
-                    "updateItem": {
-                        "item": {
-                            "questionItem":{
-                                "question": {
-                                    "questionId": item_id,
-                                    "required": True,
-                                    "grading": {
-                                        "pointValue": 1,  # 1 балл за вопрос
-                                        "correctAnswers": {
-                                            "answers": [{"value": answer} for answer in correct_answers]
+                # Если есть правильные ответы
+                if correct_answers:
+                    grade_request = {
+                        "updateItem": {
+                            "item": {
+                                "questionItem": {
+                                    "question": {
+                                        "questionId": item_id,
+                                        "required": True,
+                                        "grading": {
+                                            "pointValue": 1,  # 1 балл за вопрос
+                                            "correctAnswers": {
+                                                "answers": correct_answers  # Используем существующий список словарей
+                                            }
                                         }
                                     }
                                 }
-                             }
-                        },
-                        "updateMask": "questionItem.question.grading",
-                        "location": {
-                            "index": q_idx + 2  # +2 для учета поля ФИО и раздела
+                            },
+                            "updateMask": "questionItem.question.grading",
+                            "location": {
+                                "index": q_idx + 2  # +2 для учета поля ФИО и раздела
+                            }
                         }
                     }
-                }
-                grade_requests.append(grade_request)
+                    grade_requests.append(grade_request)
 
         # Выполняем запросы на установку правильных ответов
         try:

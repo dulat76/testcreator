@@ -138,11 +138,11 @@ def login():
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
         flash("client_secrets.json not found. Please check your deployment.")
-        return redirect(url_for("home")) # Исправлено на url_for("home")
+        return redirect(url_for("home"))
     except Exception as e:
         logging.error(f"Error during login: {e}")
         flash("Произошла ошибка во время входа.")
-        return redirect(url_for("home"))  # Redirect to index on error
+        return redirect(url_for("home"))
 
 @app.route("/callback")
 def callback():
@@ -153,20 +153,20 @@ def callback():
         session["credentials"] = json.loads(flow.credentials.to_json())
 
         # Получаем информацию о пользователе и сохраняем email в сессии
-        oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())  # Используем get_google_credentials()
+        oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())
         user_info = oauth2_service.userinfo().get().execute()
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        return redirect(url_for("home"))  # Исправлено на url_for("home")
+        return redirect(url_for("home"))
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
         flash("client_secrets.json not found. Please check your deployment.")
-        return redirect(url_for("home"))  # Исправлено на url_for("home")
+        return redirect(url_for("home"))
     except Exception as e:
         logging.error(f"Error during callback: {e}")
         flash("Произошла ошибка во время обратного вызова.")
-        return redirect(url_for("home"))  # Redirect to index on error
+        return redirect(url_for("home"))
 
 @app.route("/create_form", methods=["POST"])
 def create_form():
@@ -181,11 +181,11 @@ def create_form():
         access_check = check_user_access(user_email)
         if "error" in access_check:
             flash(access_check["error"])
-            return redirect(url_for("home")) # Исправлено на url_for("home")
+            return redirect(url_for("home"))
 
         # Получение учетных данных пользователя
         credentials = get_google_credentials()
-        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+        if not credentials:
             flash("Не удалось получить учетные данные Google. Пожалуйста, войдите в систему еще раз.")
             return redirect(url_for("login"))
 
@@ -193,12 +193,12 @@ def create_form():
         spreadsheet_url = request.form.get("spreadsheet_url")
         if not spreadsheet_url:
             flash("Неверная ссылка на таблицу!")
-            return redirect(url_for("home")) # Исправлено на url_for("home")
+            return redirect(url_for("home"))
 
         sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_url)
         if not sheet_id_match:
             flash("Неверная ссылка на таблицу!")
-            return redirect(url_for("home")) # Исправлено на url_for("home")
+            return redirect(url_for("home"))
 
         sheet_id = sheet_id_match.group(1)
 
@@ -211,7 +211,7 @@ def create_form():
 
         if not sheet_data:
             flash("Таблица пуста!")
-            return redirect(url_for("home")) # Исправлено на url_for("home")
+            return redirect(url_for("home"))
 
         # Создание формы
         form_service = build("forms", "v1", credentials=credentials)
@@ -226,9 +226,9 @@ def create_form():
 
             question_text = row[0]
             answers = [{"value": a.lstrip("*")} for a in row[1:]]
-            correct_answers = [a.lstrip("*") for a in row[1:] if a.startswith("*")]
-
-            form_data["items"].append({
+            
+            # Создаем вопрос без указания правильного ответа
+            question_item = {
                 "title": question_text,
                 "questionItem": {
                     "question": {
@@ -236,20 +236,30 @@ def create_form():
                         "choiceQuestion": {
                             "type": "RADIO",
                             "options": answers,
-                            "shuffle": True,
-                            **({"correctAnswer": {"value": correct_answers[0]}} if correct_answers else {})
+                            "shuffle": True
                         }
                     }
                 }
-            })
+            }
+            
+            form_data["items"].append(question_item)
 
+        # Создаем форму
         form_response = form_service.forms().create(body=form_data).execute()
-
+        form_id = form_response.get("formId")
+        
         # Обновление времени последнего использования для лимитных пользователей
         if access_check["access"] == "limited":
             update_last_used(user_email)
 
-        flash(f"Форма успешно создана: {form_response.get('responderUri')}")  # Display success message
+        # Если нужно превратить в тест с оценкой, потребуется дополнительный API вызов
+        # Например:
+        # Следующий код, который нужно реализовать, если необходимо установить правильные ответы:
+        # 1. Сначала создаем форму (уже сделано выше)
+        # 2. Конвертируем её в тест
+        # 3. Для каждого вопроса устанавливаем правильный ответ
+
+        flash(f"Форма успешно создана: {form_response.get('responderUri')}")
         return redirect(form_response.get("responderUri"))
 
     except Exception as e:

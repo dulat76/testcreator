@@ -218,11 +218,14 @@ def create_form():
         form_data = {
             "info": {"title": "Автоматический тест"}
         }
+        try:
+            form_response = form_service.forms().create(body=form_data).execute()
+            form_id = form_response.get("formId")
+        except HttpError as e:
+            logging.error(f"Error creating form: {e}")
+            flash(f"Error creating form: {e}")
+            return redirect(url_for("home"))
 
-        # Создаем форму с минимальной информацией
-        form_response = form_service.forms().create(body=form_data).execute()
-        form_id = form_response.get("formId")
-        
         # Превращаем форму в тест (Quiz)
         form_settings_update = {
             "requests": [
@@ -238,12 +241,16 @@ def create_form():
                 }
             ]
         }
-        
-        form_service.forms().batchUpdate(formId=form_id, body=form_settings_update).execute()
-        
+        try:
+            form_service.forms().batchUpdate(formId=form_id, body=form_settings_update).execute()
+        except HttpError as e:
+            logging.error(f"Error converting form to quiz: {e}")
+            flash(f"Error converting form to quiz: {e}")
+            return redirect(url_for("home"))
+
         # Подготавливаем начальные запросы с полем для ввода ФИО и разделом
         batch_update_requests = []
-        
+
         # Добавляем поле для ввода ФИО
         create_name_field = {
             "createItem": {
@@ -264,7 +271,7 @@ def create_form():
             }
         }
         batch_update_requests.append(create_name_field)
-        
+
         # Добавляем раздел после поля ФИО
         create_section = {
             "createItem": {
@@ -279,42 +286,42 @@ def create_form():
             }
         }
         batch_update_requests.append(create_section)
-        
+
         # Подготавливаем запросы для создания вопросов, начиная с индекса 2 (после поля ФИО и раздела)
         question_index = 2
-        
+
         for row in sheet_data:
             if len(row) < 2:
                 continue
 
             question_text = row[0]
-            
+
             # Определение правильных ответов (отмеченных звездочкой)
             options = []
             correct_answers = []
             correct_indices = []
-            
+
             for i, answer in enumerate(row[1:]):
                 is_correct = answer.startswith("*")
                 answer_text = answer.lstrip("*")
-                
+
                 # Преобразование числового значения в текст, если это число
                 try:
                     if answer_text.replace('.', '', 1).isdigit():
                         answer_text = str(answer_text)  # Гарантируем текстовый формат
                 except:
                     pass  # Если это не число, оставляем как есть
-                
+
                 options.append({"value": answer_text})
-                
+
                 # Если ответ был отмечен звездочкой, добавляем его в правильные
                 if is_correct:
                     correct_answers.append(answer_text)
                     correct_indices.append(i)
-            
+
             # Определяем тип вопроса в зависимости от количества правильных ответов
             question_type = "CHECKBOX" if len(correct_answers) > 1 else "RADIO"
-            
+
             # Создаем запрос на добавление вопроса
             create_item_request = {
                 "createItem": {
@@ -336,41 +343,51 @@ def create_form():
                     }
                 }
             }
-            
+
             batch_update_requests.append(create_item_request)
             question_index += 1
-        
+
         # Выполняем batchUpdate для добавления всех элементов (поле ФИО, раздел и вопросы)
-        if batch_update_requests:
-            batch_response = form_service.forms().batchUpdate(
-                formId=form_id,
-                body={"requests": batch_update_requests}
-            ).execute()
-        
+        try:
+            if batch_update_requests:
+                batch_response = form_service.forms().batchUpdate(
+                    formId=form_id,
+                    body={"requests": batch_update_requests}
+                ).execute()
+        except HttpError as e:
+            logging.error(f"Error updating form with questions: {e}")
+            flash(f"Error updating form with questions: {e}")
+            return redirect(url_for("home"))
+
         # Получим информацию о созданной форме, чтобы узнать ID каждого вопроса
-        form_info = form_service.forms().get(formId=form_id).execute()
-        
+        try:
+            form_info = form_service.forms().get(formId=form_id).execute()
+        except HttpError as e:
+            logging.error(f"Error getting form info: {e}")
+            flash(f"Error getting form info: {e}")
+            return redirect(url_for("home"))
+
         # Готовим запросы для установки правильных ответов и баллов
         grade_requests = []
-        
+
         # Находим все вопросы, кроме поля ФИО
         question_items = []
         for item in form_info.get('items', []):
             if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {}):
                 question_items.append(item)
-        
+
         # Устанавливаем правильные ответы и баллы для каждого вопроса
         for q_idx, item in enumerate(question_items):
             item_id = item.get('itemId')
-            
+
             # Пропускаем, если нет ID
             if not item_id:
                 continue
-                
+
             # Получаем данные вопроса из исходных данных таблицы
             if q_idx < len(sheet_data):
                 row = sheet_data[q_idx]
-                
+
                 # Определяем правильные ответы
                 correct_answers = []
                 for i, answer in enumerate(row[1:]):
@@ -383,7 +400,7 @@ def create_form():
                         except:
                             pass
                         correct_answers.append({"value": answer_text})
-                
+
                 # Если есть правильные ответы
                 if correct_answers:
                     grade_request = {
@@ -394,7 +411,7 @@ def create_form():
                                 "grading": {
                                     "pointValue": 1,  # 1 балл за вопрос
                                     "correctAnswers": {
-                                        "answers": correct_answers
+                                        "answers": [{"value": answer} for answer in correct_answers]
                                     }
                                 }
                             },
@@ -403,32 +420,40 @@ def create_form():
                             }
                         }
                     }
-                    
                     grade_requests.append(grade_request)
-        
-        # Отправляем запросы на установку правильных ответов и баллов
-        if grade_requests:
-            try:
-                grade_response = form_service.forms().batchUpdate(
+
+        # Выполняем запросы на установку правильных ответов
+        try:
+            if grade_requests:
+                grading_batch_response = form_service.forms().batchUpdate(
                     formId=form_id,
                     body={"requests": grade_requests}
                 ).execute()
-                logging.info(f"Установлены правильные ответы и баллы для {len(grade_requests)} вопросов")
-            except Exception as e:
-                logging.error(f"Ошибка при установке правильных ответов: {e}")
-                flash(f"Внимание: Не удалось установить правильные ответы. Ошибка: {e}")
-        
-        # Обновление времени последнего использования для лимитных пользователей
-        if access_check["access"] == "limited":
-            update_last_used(user_email)
+                logging.info("Successfully updated correct answers and grading for the form.")
+                flash("Тест успешно создан!")
+        except HttpError as e:
+            logging.error(f"Error updating correct answers: {e}")
+            flash(f"Error updating correct answers: {e}")
+            return redirect(url_for("home"))
 
-        flash(f"Форма успешно создана: {form_response.get('responderUri')}")
-        return redirect(form_response.get("responderUri"))
+        # Обновляем время последнего использования для лимитных пользователей
+        update_last_used(user_email)
+
+        # Возвращаем ссылку на созданную форму
+        form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
+        flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
+        return redirect(url_for("home"))
 
     except Exception as e:
-        logging.error(f"Ошибка при создании формы: {e}")
-        flash(f"Ошибка: {e}")
+        logging.error(f"Произошла общая ошибка: {e}")
+        flash(f"Произошла ошибка при создании формы: {e}")
         return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Вы вышли из системы.")
+    return redirect(url_for("home"))
 
 if __name__ == "__main__":
     app.run(debug=True)

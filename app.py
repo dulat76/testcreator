@@ -8,35 +8,17 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from google.auth import default
-from google.oauth2 import service_account
-
 
 # Настройки приложения
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO)
 
-# Укажите путь к файлу учетных данных через переменную окружения
-credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-if not credentials_path:
-    logging.error("GOOGLE_APPLICATION_CREDENTIALS not set.")
-    exit(1)
-
-try:
-    credentials = service_account.Credentials.from_service_account_file(credentials_path)
-    logging.info("Google credentials loaded successfully.")
-except Exception as e:
-    logging.error(f"Failed to load credentials: {e}")
-    exit(1)
-
-app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
-logging.basicConfig(level=logging.INFO)
-
 # Конфигурация таблиц пользователей
-USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")  # ID Google Таблицы для лимитных пользователей
-USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")  # ID Google Таблицы для безлимитных пользователей
-
+USERS_LIMITED = os.getenv("LIMITED_USERS_SHEET")
+USERS_UNLIMITED = os.getenv("UNLIMITED_USERS_SHEET")
 
 # OAuth настройки
 CLIENT_SECRETS_FILE = "client_secrets.json"
@@ -46,20 +28,32 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile"
 ]
 
+# Загрузка учетных данных
+try:
+    credentials, project_id = default(scopes=SCOPES)
+    logging.info("Google credentials loaded successfully.")
+except Exception as e:
+    logging.error(f"Failed to load credentials: {e}")
+    exit(1)
+
 def get_google_credentials():
     """Получение учетных данных Google"""
-    if "credentials" in session:
-        creds = Credentials.from_authorized_user_info(session["credentials"])
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            session["credentials"] = json.loads(creds.to_json())
-        return creds
-    return None
+    try:
+        if "credentials" in session:
+            creds = Credentials.from_authorized_user_info(session["credentials"])
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                session["credentials"] = json.loads(creds.to_json())
+            return creds
+        return None
+    except Exception as e:
+        logging.error(f"Error getting Google credentials: {e}")
+        return None
 
 def check_user_access(user_email):
     """Проверка доступа пользователя (лимитный/безлимитный)"""
     try:
-        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
+        sheets_service = build("sheets", "v4", credentials=credentials)
         
         # Проверка безлимитных пользователей
         unlimited_users = sheets_service.spreadsheets().values().get(
@@ -78,9 +72,13 @@ def check_user_access(user_email):
         
         for row in limited_users:
             if user_email == row[0]:
-                last_used = datetime.fromisoformat(row[1])
-                if datetime.now() - last_used < timedelta(hours=24):
-                    return {"error": "Limit exceeded"}
+                try:
+                    last_used = datetime.fromisoformat(row[1])
+                    if datetime.now() - last_used < timedelta(hours=24):
+                        return {"error": "Limit exceeded"}
+                except ValueError:
+                    logging.warning(f"Invalid date format in row: {row}")
+                    return {"error": "Invalid date format"}
                 return {"access": "limited"}
         
         return {"error": "Unauthorized"}
@@ -91,21 +89,24 @@ def check_user_access(user_email):
 
 def update_last_used(user_email):
     """Обновление времени последнего использования для лимитных пользователей"""
-    sheets_service = build("sheets", "v4", credentials=get_google_credentials())
-    limited_users = sheets_service.spreadsheets().values().get(
-        spreadsheetId=USERS_LIMITED,
-        range="A:A"
-    ).execute().get("values", [])
-    
-    for i, row in enumerate(limited_users):
-        if row[0] == user_email:
-            sheets_service.spreadsheets().values().update(
-                spreadsheetId=USERS_LIMITED,
-                range=f"B{i+2}",
-                valueInputOption="RAW",
-                body={"values": [[datetime.now().isoformat()]]}
-            ).execute()
-            break
+    try:
+        sheets_service = build("sheets", "v4", credentials=credentials)
+        limited_users = sheets_service.spreadsheets().values().get(
+            spreadsheetId=USERS_LIMITED,
+            range="A:A"
+        ).execute().get("values", [])
+        
+        for i, row in enumerate(limited_users):
+            if row[0] == user_email:
+                sheets_service.spreadsheets().values().update(
+                    spreadsheetId=USERS_LIMITED,
+                    range=f"B{i+2}",
+                    valueInputOption="RAW",
+                    body={"values": [[datetime.now().isoformat()]]}
+                ).execute()
+                break
+    except HttpError as e:
+        logging.error(f"Google Sheets API error: {e}")
 
 @app.route("/")
 def home():
@@ -138,8 +139,8 @@ def callback():
 def create_form():
     try:
         # Получение информации о пользователе
-        user_info_service = build("oauth2", "v2", credentials=get_google_credentials())
-        user_info = user_info_service.userinfo().get().execute()
+        oauth2_service = build("oauth2", "v2", credentials=credentials)
+        user_info = oauth2_service.userinfo().get().execute()
         user_email = user_info["email"]
         
         # Проверка доступа пользователя
@@ -162,7 +163,7 @@ def create_form():
         sheet_id = sheet_id_match.group(1)
         
         # Чтение данных из таблицы
-        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
+        sheets_service = build("sheets", "v4", credentials=credentials)
         sheet_data = sheets_service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range="A:Z"
@@ -173,7 +174,7 @@ def create_form():
             return redirect(url_for("index"))
         
         # Создание формы
-        form_service = build("forms", "v1", credentials=get_google_credentials())
+        form_service = build("forms", "v1", credentials=credentials)
         form_data = {
             "info": {"title": "Автоматический тест"},
             "items": []

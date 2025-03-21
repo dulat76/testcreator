@@ -28,7 +28,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/drive.file",
-    "openid"  # Добавлен scope openid
+    "openid"
 ]
 
 def get_google_credentials():
@@ -49,7 +49,7 @@ def get_google_credentials():
         except Exception as e:
             logging.error(f"Error refreshing credentials: {e}")
             flash("Error refreshing credentials. Please log in again.")
-            return None  # Или другое действие по обработке ошибки
+            return None
 
     return credentials
 
@@ -57,7 +57,7 @@ def check_user_access(user_email):
     """Проверка доступа пользователя (лимитный/безлимитный)"""
     try:
         credentials = get_google_credentials()
-        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+        if not credentials:
             return {"error": "Could not retrieve Google credentials."}
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -101,7 +101,7 @@ def update_last_used(user_email):
     """Обновление времени последнего использования для лимитных пользователей"""
     try:
         credentials = get_google_credentials()
-        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+        if not credentials:
             return
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -213,7 +213,7 @@ def create_form():
             flash("Таблица пуста!")
             return redirect(url_for("home"))
 
-        # Создание формы - теперь только с заголовком
+        # Создание формы - только с заголовком
         form_service = build("forms", "v1", credentials=credentials)
         form_data = {
             "info": {"title": "Автоматический тест"}
@@ -223,7 +223,25 @@ def create_form():
         form_response = form_service.forms().create(body=form_data).execute()
         form_id = form_response.get("formId")
         
-        # Подготавливаем запросы для batchUpdate
+        # Превращаем форму в тест (Quiz)
+        form_settings_update = {
+            "requests": [
+                {
+                    "updateSettings": {
+                        "settings": {
+                            "quizSettings": {
+                                "isQuiz": True
+                            }
+                        },
+                        "updateMask": "quizSettings.isQuiz"
+                    }
+                }
+            ]
+        }
+        
+        form_service.forms().batchUpdate(formId=form_id, body=form_settings_update).execute()
+        
+        # Подготавливаем запросы для создания вопросов
         batch_update_requests = []
         
         for index, row in enumerate(sheet_data):
@@ -231,7 +249,29 @@ def create_form():
                 continue
 
             question_text = row[0]
-            answers = [{"value": a.lstrip("*")} for a in row[1:]]
+            
+            # Определение правильных ответов (отмеченных звездочкой)
+            options = []
+            correct_answers = []
+            
+            for answer in row[1:]:
+                answer_text = answer.lstrip("*")
+                
+                # Преобразование числового значения в текст, если это число
+                try:
+                    if answer_text.replace('.', '', 1).isdigit():
+                        answer_text = str(answer_text)  # Гарантируем текстовый формат
+                except:
+                    pass  # Если это не число, оставляем как есть
+                
+                options.append({"value": answer_text})
+                
+                # Если ответ был отмечен звездочкой, добавляем его в правильные
+                if answer.startswith("*"):
+                    correct_answers.append(answer_text)
+            
+            # Определяем тип вопроса в зависимости от количества правильных ответов
+            question_type = "CHECKBOX" if len(correct_answers) > 1 else "RADIO"
             
             # Создаем запрос на добавление вопроса
             create_item_request = {
@@ -242,8 +282,8 @@ def create_form():
                             "question": {
                                 "required": True,
                                 "choiceQuestion": {
-                                    "type": "RADIO",
-                                    "options": answers,
+                                    "type": question_type,
+                                    "options": options,
                                     "shuffle": True
                                 }
                             }
@@ -257,12 +297,95 @@ def create_form():
             
             batch_update_requests.append(create_item_request)
         
-        # Выполняем batchUpdate для добавления всех вопросов сразу
+        # Выполняем batchUpdate для добавления всех вопросов
         if batch_update_requests:
-            form_service.forms().batchUpdate(
+            batch_response = form_service.forms().batchUpdate(
                 formId=form_id,
                 body={"requests": batch_update_requests}
             ).execute()
+        
+        # Получим информацию о созданной форме, чтобы узнать ID каждого вопроса
+        form_info = form_service.forms().get(formId=form_id).execute()
+        
+        # Готовим запросы для установки правильных ответов и баллов
+        grade_requests = []
+        
+        # Обходим все элементы формы
+        for item_index, item in enumerate(form_info.get('items', [])):
+            item_id = item.get('itemId')
+            
+            # Пропускаем, если это не вопрос или нет ID
+            if not item_id or 'questionItem' not in item:
+                continue
+                
+            # Получаем данные вопроса из исходных данных таблицы
+            if item_index < len(sheet_data) and len(sheet_data[item_index]) >= 2:
+                row = sheet_data[item_index]
+                
+                # Определяем правильные ответы
+                correct_indices = []
+                for i, answer in enumerate(row[1:]):
+                    if answer.startswith("*"):
+                        correct_indices.append(i)
+                
+                # Если есть правильные ответы
+                if correct_indices:
+                    # Тип вопроса определяем по количеству правильных ответов
+                    question_type = "CHECKBOX" if len(correct_indices) > 1 else "RADIO"
+                    
+                    # Формируем запрос на оценивание в зависимости от типа вопроса
+                    if question_type == "RADIO":
+                        # Для вопроса с одним правильным ответом
+                        grade_request = {
+                            "updateQuestion": {
+                                "question": {
+                                    "questionId": item_id,
+                                    "required": True,
+                                    "grading": {
+                                        "pointValue": 1,  # 1 балл за правильный ответ
+                                        "correctAnswers": {
+                                            "answers": [{"value": row[1 + correct_indices[0]].lstrip("*")}]
+                                        }
+                                    }
+                                },
+                                "location": {
+                                    "index": item_index
+                                }
+                            }
+                        }
+                    else:
+                        # Для вопроса с несколькими правильными ответами
+                        correct_answer_values = [row[1 + idx].lstrip("*") for idx in correct_indices]
+                        grade_request = {
+                            "updateQuestion": {
+                                "question": {
+                                    "questionId": item_id,
+                                    "required": True,
+                                    "grading": {
+                                        "pointValue": 1,  # 1 балл за все правильные ответы
+                                        "correctAnswers": {
+                                            "answers": [{"value": value} for value in correct_answer_values]
+                                        }
+                                    }
+                                },
+                                "location": {
+                                    "index": item_index
+                                }
+                            }
+                        }
+                    
+                    grade_requests.append(grade_request)
+        
+        # Отправляем запросы на установку оценок
+        if grade_requests:
+            try:
+                form_service.forms().batchUpdate(
+                    formId=form_id,
+                    body={"requests": grade_requests}
+                ).execute()
+            except Exception as e:
+                logging.error(f"Ошибка при установке правильных ответов: {e}")
+                # Продолжаем выполнение, даже если не удалось установить правильные ответы
         
         # Обновление времени последнего использования для лимитных пользователей
         if access_check["access"] == "limited":

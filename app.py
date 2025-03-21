@@ -17,9 +17,8 @@ app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Конфигурация таблиц пользователей
-USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")  # ID Google Таблицы для лимитных пользователей
-USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")  # ID Google Таблицы для безлимитных пользователей
-
+USERS_LIMITED = os.getenv("LIMITED_USERS_SHEET")
+USERS_UNLIMITED = os.getenv("UNLIMITED_USERS_SHEET")
 
 # OAuth настройки
 CLIENT_SECRETS_FILE = "client_secrets.json"

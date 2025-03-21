@@ -10,72 +10,56 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google.auth import default
-from google.oauth2 import service_account
 
 # Настройки приложения
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Улучшенное логирование
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Конфигурация таблиц пользователей
-USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")
-USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")
+USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")  # ID Google Таблицы для лимитных пользователей
+USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")  # ID Google Таблицы для безлимитных пользователей
 
-# OAuth настройки (могут быть не нужны, если используете только сервисный аккаунт)
-CLIENT_SECRETS_FILE = "client_secrets.json"  # Устаревший метод, рекомендуется сервисный аккаунт
+# OAuth настройки
+CLIENT_SECRETS_FILE = "client_secrets.json"
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/userinfo.email"  # Добавлен scope для получения email
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/drive.file"  # Scope для доступа к Google Drive
 ]
 
-# === Учетные данные Google (Сервисный аккаунт) ===
-# Используйте ЭТО, если настроили переменную окружения GOOGLE_APPLICATION_CREDENTIALS
 def get_google_credentials():
-    """Получение учетных данных Google из переменной окружения GOOGLE_APPLICATION_CREDENTIALS."""
-    try:
-        credentials, project_id = default(scopes=SCOPES)
-        logging.info("Учетные данные Google успешно загружены из GOOGLE_APPLICATION_CREDENTIALS.")
-        return credentials
-    except Exception as e:
-        logging.error(f"Ошибка при загрузке учетных данных из GOOGLE_APPLICATION_CREDENTIALS: {e}")
-        logging.info("Попытка загрузки учетных данных из файла service_account.json...")
+    """Получение учетных данных Google из сессии."""
+    credentials_json = session.get("credentials")
+    if not credentials_json:
+        raise Exception("No credentials found in session. User must log in.")
+
+    credentials = Credentials.from_authorized_user_info(credentials_json, SCOPES)
+
+    # Проверка и обновление токена, если он просрочен
+    if credentials.expired and credentials.refresh_token:
+        logging.info("Refreshing credentials...")
         try:
-            # Попытка загрузить учетные данные из файла (альтернативный вариант)
-            credentials = service_account.Credentials.from_service_account_file(
-                'service_account.json', scopes=SCOPES
-            )
-            logging.info("Учетные данные Google успешно загружены из service_account.json.")
-            return credentials
+            credentials.refresh(Request())
+            session["credentials"] = json.loads(credentials.to_json())
+            logging.info("Credentials refreshed successfully.")
+        except Exception as e:
+            logging.error(f"Error refreshing credentials: {e}")
+            flash("Error refreshing credentials. Please log in again.")
+            return None  # Или другое действие по обработке ошибки
 
-        except Exception as e2:
-            logging.error(f"Ошибка при загрузке учетных данных из service_account.json: {e2}")
-            raise # Поднимаем исключение, если не удалось загрузить учетные данные
-
-# Альтернативный способ, если GOOGLE_APPLICATION_CREDENTIALS не работает
-# def get_google_credentials():
-#     """Получение учетных данных Google из переменной окружения GOOGLE_CREDENTIALS_JSON."""
-#     credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-#     if not credentials_json:
-#         raise ValueError("Переменная окружения GOOGLE_CREDENTIALS_JSON не найдена")
-
-#     try:
-#         credentials_info = json.loads(credentials_json)
-#     except json.JSONDecodeError:
-#         raise ValueError("Неверный формат JSON в переменной окружения GOOGLE_CREDENTIALS_JSON")
-
-#     credentials = service_account.Credentials.from_service_account_info(
-#         credentials_info, scopes=SCOPES
-#     )
-#     return credentials
-
-
+    return credentials
 
 def check_user_access(user_email):
     """Проверка доступа пользователя (лимитный/безлимитный)"""
     try:
-        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
+        credentials = get_google_credentials()
+        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+            return {"error": "Could not retrieve Google credentials."}
+
+        sheets_service = build("sheets", "v4", credentials=credentials)
 
         # Проверка безлимитных пользователей
         unlimited_users = sheets_service.spreadsheets().values().get(
@@ -84,7 +68,6 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         if any(user_email == row[0] for row in unlimited_users):
-            logging.info(f"Пользователь {user_email} имеет безлимитный доступ.")
             return {"access": "unlimited"}
 
         # Проверка лимитных пользователей
@@ -98,28 +81,29 @@ def check_user_access(user_email):
                 try:
                     last_used = datetime.fromisoformat(row[1])
                     if datetime.now() - last_used < timedelta(hours=24):
-                        logging.warning(f"Превышен лимит использования для пользователя {user_email}.")
-                        return {"error": "Превышен лимит, попробуйте позже"}
+                        return {"error": "Превышен лимит использования."}
                 except ValueError:
                     logging.warning(f"Неверный формат даты в строке: {row}")
-                    return {"error": "Неверный формат даты"}
-                logging.info(f"Пользователь {user_email} имеет лимитный доступ.")
+                    return {"error": "Неверный формат даты."}
                 return {"access": "limited"}
 
-        logging.warning(f"Пользователь {user_email} не авторизован.")
-        return {"error": "Не авторизован"}
+        return {"error": "Не авторизован."}
 
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
         return {"error": str(e)}
     except Exception as e:
-        logging.error(f"Неожиданная ошибка: {e}")
-        return {"error": "Неожиданная ошибка при проверке доступа"}
+        logging.error(f"Ошибка при проверке доступа: {e}")
+        return {"error": "Произошла ошибка при проверке доступа."}
 
 def update_last_used(user_email):
     """Обновление времени последнего использования для лимитных пользователей"""
     try:
-        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
+        credentials = get_google_credentials()
+        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+            return
+
+        sheets_service = build("sheets", "v4", credentials=credentials)
         limited_users = sheets_service.spreadsheets().values().get(
             spreadsheetId=USERS_LIMITED,
             range="A:A"
@@ -133,12 +117,11 @@ def update_last_used(user_email):
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
-                logging.info(f"Время последнего использования обновлено для пользователя {user_email}.")
                 break
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
     except Exception as e:
-         logging.error(f"Неожиданная ошибка при обновлении времени последнего использования: {e}")
+        logging.error(f"Ошибка при обновлении времени последнего использования: {e}")
 
 @app.route("/")
 def home():
@@ -153,7 +136,8 @@ def login():
         return redirect(auth_url)
     except Exception as e:
         logging.error(f"Ошибка во время входа: {e}")
-        return "Произошла ошибка во время входа.", 500
+        flash("Произошла ошибка во время входа.")
+        return redirect(url_for("index"))  # Redirect to index on error
 
 @app.route("/callback")
 def callback():
@@ -162,25 +146,39 @@ def callback():
         flow.redirect_uri = url_for("callback", _external=True)
         flow.fetch_token(authorization_response=request.url)
         session["credentials"] = json.loads(flow.credentials.to_json())
+
+        # Получаем информацию о пользователе и сохраняем email в сессии
+        oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())  # Используем get_google_credentials()
+        user_info = oauth2_service.userinfo().get().execute()
+        session["user_email"] = user_info["email"]
+        logging.info(f"User {session['user_email']} logged in successfully.")
+
         return redirect(url_for("index"))
     except Exception as e:
         logging.error(f"Ошибка во время обратного вызова: {e}")
-        return "Произошла ошибка во время обратного вызова.", 500
+        flash("Произошла ошибка во время обратного вызова.")
+        return redirect(url_for("index"))  # Redirect to index on error
 
 @app.route("/create_form", methods=["POST"])
 def create_form():
     try:
-        credentials = get_google_credentials()
         # Получение информации о пользователе
-        oauth2_service = build("oauth2", "v2", credentials=credentials)
-        user_info = oauth2_service.userinfo().get().execute()
-        user_email = user_info["email"]
+        user_email = session.get("user_email")
+        if not user_email:
+            flash("Пожалуйста, войдите в систему, чтобы создать форму.")
+            return redirect(url_for("login"))
 
         # Проверка доступа пользователя
         access_check = check_user_access(user_email)
         if "error" in access_check:
             flash(access_check["error"])
             return redirect(url_for("index"))
+
+        # Получение учетных данных пользователя
+        credentials = get_google_credentials()
+        if not credentials:  # Обработка случая, когда не удалось получить учетные данные
+            flash("Не удалось получить учетные данные Google. Пожалуйста, войдите в систему еще раз.")
+            return redirect(url_for("login"))
 
         # Обработка ссылки на таблицу
         spreadsheet_url = request.form.get("spreadsheet_url")
@@ -242,6 +240,7 @@ def create_form():
         if access_check["access"] == "limited":
             update_last_used(user_email)
 
+        flash(f"Форма успешно создана: {form_response.get('responderUri')}")  # Display success message
         return redirect(form_response.get("responderUri"))
 
     except Exception as e:

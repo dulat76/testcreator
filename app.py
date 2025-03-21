@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")  # ID Google Таблицы для лимитных пользователей
 USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")  # ID Google Таблицы для безлимитных пользователей
 
+
 # OAuth настройки
 CLIENT_SECRETS_FILE = "client_secrets.json"
 SCOPES = [
@@ -88,48 +89,52 @@ def update_last_used(user_email):
             break
 
 @app.route("/")
-def index():
-    """Главная страница"""
+def home():
     return render_template("index.html")
 
 @app.route("/login")
 def login():
-    """Авторизация пользователя через Google"""
-    flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
-    flow.redirect_uri = url_for("callback", _external=True)
-    auth_url, _ = flow.authorization_url(prompt="consent")
-    return redirect(auth_url)
+    try:
+        flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
+        flow.redirect_uri = url_for("callback", _external=True)
+        auth_url, _ = flow.authorization_url(prompt="consent")
+        return redirect(auth_url)
+    except Exception as e:
+        logging.error(f"Error during login: {e}")
+        return "An error occurred during login.", 500
 
 @app.route("/callback")
 def callback():
-    """Обработка авторизации"""
-    flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
-    flow.redirect_uri = url_for("callback", _external=True)
-    flow.fetch_token(authorization_response=request.url)
-    session["credentials"] = json.loads(flow.credentials.to_json())
-    return redirect(url_for("index"))
+    try:
+        flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
+        flow.redirect_uri = url_for("callback", _external=True)
+        flow.fetch_token(authorization_response=request.url)
+        session["credentials"] = json.loads(flow.credentials.to_json())
+        return redirect(url_for("index"))
+    except Exception as e:
+        logging.error(f"Error during callback: {e}")
+        return "An error occurred during callback.", 500
 
 @app.route("/create_form", methods=["POST"])
 def create_form():
-    """Создание Google Формы на основе данных из таблицы"""
-    creds = get_google_credentials()
-    if not creds:
-        return redirect(url_for("login"))
-    
-    # Получение информации о пользователе
-    user_info_service = build("oauth2", "v2", credentials=creds)
-    user_info = user_info_service.userinfo().get().execute()
-    user_email = user_info["email"]
-    
-    # Проверка доступа пользователя
-    access_check = check_user_access(user_email)
-    if "error" in access_check:
-        flash(access_check["error"])
-        return redirect(url_for("index"))
-    
     try:
+        # Получение информации о пользователе
+        user_info_service = build("oauth2", "v2", credentials=get_google_credentials())
+        user_info = user_info_service.userinfo().get().execute()
+        user_email = user_info["email"]
+        
+        # Проверка доступа пользователя
+        access_check = check_user_access(user_email)
+        if "error" in access_check:
+            flash(access_check["error"])
+            return redirect(url_for("index"))
+        
         # Обработка ссылки на таблицу
         spreadsheet_url = request.form.get("spreadsheet_url")
+        if not spreadsheet_url:
+            flash("Неверная ссылка на таблицу!")
+            return redirect(url_for("index"))
+        
         sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_url)
         if not sheet_id_match:
             flash("Неверная ссылка на таблицу!")
@@ -138,7 +143,7 @@ def create_form():
         sheet_id = sheet_id_match.group(1)
         
         # Чтение данных из таблицы
-        sheets_service = build("sheets", "v4", credentials=creds)
+        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
         sheet_data = sheets_service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range="A:Z"
@@ -149,7 +154,7 @@ def create_form():
             return redirect(url_for("index"))
         
         # Создание формы
-        form_service = build("forms", "v1", credentials=creds)
+        form_service = build("forms", "v1", credentials=get_google_credentials())
         form_data = {
             "info": {"title": "Автоматический тест"},
             "items": []

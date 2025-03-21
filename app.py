@@ -25,7 +25,8 @@ CLIENT_SECRETS_FILE = "client_secrets.json"
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/userinfo.profile"
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/userinfo.email"  # Добавлен scope для получения email
 ]
 
 # Загрузка учетных данных
@@ -38,22 +39,12 @@ except Exception as e:
 
 def get_google_credentials():
     """Получение учетных данных Google"""
-    try:
-        if "credentials" in session:
-            creds = Credentials.from_authorized_user_info(session["credentials"])
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                session["credentials"] = json.loads(creds.to_json())
-            return creds
-        return None
-    except Exception as e:
-        logging.error(f"Error getting Google credentials: {e}")
-        return None
+    return credentials  # Возвращаем загруженные учетные данные
 
 def check_user_access(user_email):
     """Проверка доступа пользователя (лимитный/безлимитный)"""
     try:
-        sheets_service = build("sheets", "v4", credentials=credentials)
+        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
         
         # Проверка безлимитных пользователей
         unlimited_users = sheets_service.spreadsheets().values().get(
@@ -90,7 +81,7 @@ def check_user_access(user_email):
 def update_last_used(user_email):
     """Обновление времени последнего использования для лимитных пользователей"""
     try:
-        sheets_service = build("sheets", "v4", credentials=credentials)
+        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
         limited_users = sheets_service.spreadsheets().values().get(
             spreadsheetId=USERS_LIMITED,
             range="A:A"
@@ -139,7 +130,7 @@ def callback():
 def create_form():
     try:
         # Получение информации о пользователе
-        oauth2_service = build("oauth2", "v2", credentials=credentials)
+        oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())
         user_info = oauth2_service.userinfo().get().execute()
         user_email = user_info["email"]
         
@@ -163,7 +154,7 @@ def create_form():
         sheet_id = sheet_id_match.group(1)
         
         # Чтение данных из таблицы
-        sheets_service = build("sheets", "v4", credentials=credentials)
+        sheets_service = build("sheets", "v4", credentials=get_google_credentials())
         sheet_data = sheets_service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range="A:Z"
@@ -174,7 +165,7 @@ def create_form():
             return redirect(url_for("index"))
         
         # Создание формы
-        form_service = build("forms", "v1", credentials=credentials)
+        form_service = build("forms", "v1", credentials=get_google_credentials())
         form_data = {
             "info": {"title": "Автоматический тест"},
             "items": []

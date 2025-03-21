@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth import default
+from google.oauth2 import service_account
 
 # Установка пути к файлу учетных данных
 try:

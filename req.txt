@@ -1,0 +1,21 @@
+Flask
+Flask-Session
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+requests
+google-api-python-client
+pandas
+google-auth-transport-requests>=1.0.0
+gunicorn>=20.0.4
+
+**********
+#пакет из perplexity
+******************
+Flask==3.1.0
+google-api-python-client==2.165.0
+google-auth-oauthlib==1.2.1
+protobuf==6.30.1
+aiogram==3.17.0
+aiohttp==3.11.12
+# Другие необходимые пакеты

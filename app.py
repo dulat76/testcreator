@@ -241,10 +241,49 @@ def create_form():
         
         form_service.forms().batchUpdate(formId=form_id, body=form_settings_update).execute()
         
-        # Подготавливаем запросы для создания вопросов
+        # Подготавливаем начальные запросы с полем для ввода ФИО и разделом
         batch_update_requests = []
         
-        for index, row in enumerate(sheet_data):
+        # Добавляем поле для ввода ФИО
+        create_name_field = {
+            "createItem": {
+                "item": {
+                    "title": "Введите ваше ФИО",
+                    "questionItem": {
+                        "question": {
+                            "required": True,
+                            "textQuestion": {
+                                "paragraph": False
+                            }
+                        }
+                    }
+                },
+                "location": {
+                    "index": 0
+                }
+            }
+        }
+        batch_update_requests.append(create_name_field)
+        
+        # Добавляем раздел после поля ФИО
+        create_section = {
+            "createItem": {
+                "item": {
+                    "title": "Тестовые вопросы",
+                    "description": "Ответьте на следующие вопросы теста:",
+                    "pageBreakItem": {}
+                },
+                "location": {
+                    "index": 1
+                }
+            }
+        }
+        batch_update_requests.append(create_section)
+        
+        # Подготавливаем запросы для создания вопросов, начиная с индекса 2 (после поля ФИО и раздела)
+        question_index = 2
+        
+        for row in sheet_data:
             if len(row) < 2:
                 continue
 
@@ -290,14 +329,15 @@ def create_form():
                         }
                     },
                     "location": {
-                        "index": index
+                        "index": question_index
                     }
                 }
             }
             
             batch_update_requests.append(create_item_request)
+            question_index += 1
         
-        # Выполняем batchUpdate для добавления всех вопросов
+        # Выполняем batchUpdate для добавления всех элементов (поле ФИО, раздел и вопросы)
         if batch_update_requests:
             batch_response = form_service.forms().batchUpdate(
                 formId=form_id,
@@ -310,12 +350,16 @@ def create_form():
         # Готовим запросы для установки правильных ответов и баллов
         grade_requests = []
         
-        # Обходим все элементы формы
-        for item_index, item in enumerate(form_info.get('items', [])):
+        # Находим вопросы теста и устанавливаем правильные ответы
+        # Пропускаем первые два элемента (поле ФИО и раздел)
+        question_items = [item for item in form_info.get('items', []) 
+                         if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {})]
+        
+        for item_index, item in enumerate(question_items):
             item_id = item.get('itemId')
             
-            # Пропускаем, если это не вопрос или нет ID
-            if not item_id or 'questionItem' not in item:
+            # Пропускаем, если нет ID
+            if not item_id:
                 continue
                 
             # Получаем данные вопроса из исходных данных таблицы
@@ -330,49 +374,38 @@ def create_form():
                 
                 # Если есть правильные ответы
                 if correct_indices:
+                    # Преобразуем все ответы в текст (для чисел)
+                    correct_answer_values = []
+                    for idx in correct_indices:
+                        answer_text = row[1 + idx].lstrip("*")
+                        try:
+                            if answer_text.replace('.', '', 1).isdigit():
+                                answer_text = str(answer_text)
+                        except:
+                            pass
+                        correct_answer_values.append(answer_text)
+                    
                     # Тип вопроса определяем по количеству правильных ответов
                     question_type = "CHECKBOX" if len(correct_indices) > 1 else "RADIO"
                     
-                    # Формируем запрос на оценивание в зависимости от типа вопроса
-                    if question_type == "RADIO":
-                        # Для вопроса с одним правильным ответом
-                        grade_request = {
-                            "updateQuestion": {
-                                "question": {
-                                    "questionId": item_id,
-                                    "required": True,
-                                    "grading": {
-                                        "pointValue": 1,  # 1 балл за правильный ответ
-                                        "correctAnswers": {
-                                            "answers": [{"value": row[1 + correct_indices[0]].lstrip("*")}]
-                                        }
+                    # Формируем запрос на оценивание
+                    grade_request = {
+                        "updateQuestion": {
+                            "question": {
+                                "questionId": item_id,
+                                "required": True,
+                                "grading": {
+                                    "pointValue": 1,  # 1 балл за правильный ответ
+                                    "correctAnswers": {
+                                        "answers": [{"value": value} for value in correct_answer_values]
                                     }
-                                },
-                                "location": {
-                                    "index": item_index
                                 }
+                            },
+                            "location": {
+                                "index": item_index + 2  # +2 для учета поля ФИО и раздела
                             }
                         }
-                    else:
-                        # Для вопроса с несколькими правильными ответами
-                        correct_answer_values = [row[1 + idx].lstrip("*") for idx in correct_indices]
-                        grade_request = {
-                            "updateQuestion": {
-                                "question": {
-                                    "questionId": item_id,
-                                    "required": True,
-                                    "grading": {
-                                        "pointValue": 1,  # 1 балл за все правильные ответы
-                                        "correctAnswers": {
-                                            "answers": [{"value": value} for value in correct_answer_values]
-                                        }
-                                    }
-                                },
-                                "location": {
-                                    "index": item_index
-                                }
-                            }
-                        }
+                    }
                     
                     grade_requests.append(grade_request)
         

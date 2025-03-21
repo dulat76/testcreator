@@ -11,21 +11,25 @@ from google.oauth2.credentials import Credentials
 from google.auth import default
 from google.oauth2 import service_account
 
-# Установка пути к файлу учетных данных
+
+# Настройки приложения
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
+logging.basicConfig(level=logging.INFO)
+
+# Укажите путь к файлу учетных данных через переменную окружения
+credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+if not credentials_path:
+    logging.error("GOOGLE_APPLICATION_CREDENTIALS not set.")
+    exit(1)
+
 try:
-    credentials = service_account.Credentials.from_service_account_file(
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS']
-    )
+    credentials = service_account.Credentials.from_service_account_file(credentials_path)
     logging.info("Google credentials loaded successfully.")
 except Exception as e:
     logging.error(f"Failed to load credentials: {e}")
     exit(1)
 
-# Получение учетных данных
-credentials, project = default()
-
-# Настройки приложения
-app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO)
 

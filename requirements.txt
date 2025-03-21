@@ -3,8 +3,9 @@ Flask-Session
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-google-auth-transport-requests
-google-api-python-client
+google-auth
 requests
+google-api-python-client
 pandas
 gunicorn
+google-auth-transport-requests==0.5.0

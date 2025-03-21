@@ -27,7 +27,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/drive.file"  # Scope для доступа к Google Drive
+    "https://www.googleapis.com/auth/drive.file",
+    "openid"  # Добавлен scope openid
 ]
 
 def get_google_credentials():
@@ -149,8 +150,7 @@ def callback():
         flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
         flow.redirect_uri = url_for("callback", _external=True)
         flow.fetch_token(authorization_response=request.url)
-        credentials = flow.credentials
-        session["credentials"] = json.loads(credentials.to_json())
+        session["credentials"] = json.loads(flow.credentials.to_json())
 
         # Получаем информацию о пользователе и сохраняем email в сессии
         oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())  # Используем get_google_credentials()

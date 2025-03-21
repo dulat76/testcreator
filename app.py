@@ -11,7 +11,14 @@ from google.oauth2.credentials import Credentials
 from google.auth import default
 
 # Установка пути к файлу учетных данных
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/path/to/client_secrets.json"
+try:
+    credentials = service_account.Credentials.from_service_account_file(
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+    )
+    logging.info("Google credentials loaded successfully.")
+except Exception as e:
+    logging.error(f"Failed to load credentials: {e}")
+    exit(1)
 
 # Получение учетных данных
 credentials, project = default()

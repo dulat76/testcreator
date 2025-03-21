@@ -1,11 +1,16 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Главная</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Создание теста</title>
 </head>
 <body>
-    <h1>Создание тестов</h1>
-    <a href="{{ url_for('login') }}">Войти через Google</a>
+  <h1>Создание теста из Google Таблицы</h1>
+  <form action="/create_form" method="post">
+      <label for="spreadsheet_url">Ссылка на Google Таблицу:</label><br>
+      <input type="text" id="spreadsheet_url" name="spreadsheet_url" required><br><br>
+      <button type="submit">Создать тест</button>
+  </form>
 </body>
 </html>

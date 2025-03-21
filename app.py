@@ -292,8 +292,10 @@ def create_form():
             # Определение правильных ответов (отмеченных звездочкой)
             options = []
             correct_answers = []
+            correct_indices = []
             
-            for answer in row[1:]:
+            for i, answer in enumerate(row[1:]):
+                is_correct = answer.startswith("*")
                 answer_text = answer.lstrip("*")
                 
                 # Преобразование числового значения в текст, если это число
@@ -306,8 +308,9 @@ def create_form():
                 options.append({"value": answer_text})
                 
                 # Если ответ был отмечен звездочкой, добавляем его в правильные
-                if answer.startswith("*"):
+                if is_correct:
                     correct_answers.append(answer_text)
+                    correct_indices.append(i)
             
             # Определяем тип вопроса в зависимости от количества правильных ответов
             question_type = "CHECKBOX" if len(correct_answers) > 1 else "RADIO"
@@ -350,12 +353,14 @@ def create_form():
         # Готовим запросы для установки правильных ответов и баллов
         grade_requests = []
         
-        # Находим вопросы теста и устанавливаем правильные ответы
-        # Пропускаем первые два элемента (поле ФИО и раздел)
-        question_items = [item for item in form_info.get('items', []) 
-                         if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {})]
+        # Находим все вопросы, кроме поля ФИО
+        question_items = []
+        for item in form_info.get('items', []):
+            if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {}):
+                question_items.append(item)
         
-        for item_index, item in enumerate(question_items):
+        # Устанавливаем правильные ответы и баллы для каждого вопроса
+        for q_idx, item in enumerate(question_items):
             item_id = item.get('itemId')
             
             # Пропускаем, если нет ID
@@ -363,62 +368,55 @@ def create_form():
                 continue
                 
             # Получаем данные вопроса из исходных данных таблицы
-            if item_index < len(sheet_data) and len(sheet_data[item_index]) >= 2:
-                row = sheet_data[item_index]
+            if q_idx < len(sheet_data):
+                row = sheet_data[q_idx]
                 
                 # Определяем правильные ответы
-                correct_indices = []
+                correct_answers = []
                 for i, answer in enumerate(row[1:]):
                     if answer.startswith("*"):
-                        correct_indices.append(i)
-                
-                # Если есть правильные ответы
-                if correct_indices:
-                    # Преобразуем все ответы в текст (для чисел)
-                    correct_answer_values = []
-                    for idx in correct_indices:
-                        answer_text = row[1 + idx].lstrip("*")
+                        answer_text = answer.lstrip("*")
+                        # Преобразование числовых значений в текст
                         try:
                             if answer_text.replace('.', '', 1).isdigit():
                                 answer_text = str(answer_text)
                         except:
                             pass
-                        correct_answer_values.append(answer_text)
-                    
-                    # Тип вопроса определяем по количеству правильных ответов
-                    question_type = "CHECKBOX" if len(correct_indices) > 1 else "RADIO"
-                    
-                    # Формируем запрос на оценивание
+                        correct_answers.append({"value": answer_text})
+                
+                # Если есть правильные ответы
+                if correct_answers:
                     grade_request = {
                         "updateQuestion": {
                             "question": {
                                 "questionId": item_id,
                                 "required": True,
                                 "grading": {
-                                    "pointValue": 1,  # 1 балл за правильный ответ
+                                    "pointValue": 1,  # 1 балл за вопрос
                                     "correctAnswers": {
-                                        "answers": [{"value": value} for value in correct_answer_values]
+                                        "answers": correct_answers
                                     }
                                 }
                             },
                             "location": {
-                                "index": item_index + 2  # +2 для учета поля ФИО и раздела
+                                "index": q_idx + 2  # +2 для учета поля ФИО и раздела
                             }
                         }
                     }
                     
                     grade_requests.append(grade_request)
         
-        # Отправляем запросы на установку оценок
+        # Отправляем запросы на установку правильных ответов и баллов
         if grade_requests:
             try:
-                form_service.forms().batchUpdate(
+                grade_response = form_service.forms().batchUpdate(
                     formId=form_id,
                     body={"requests": grade_requests}
                 ).execute()
+                logging.info(f"Установлены правильные ответы и баллы для {len(grade_requests)} вопросов")
             except Exception as e:
                 logging.error(f"Ошибка при установке правильных ответов: {e}")
-                # Продолжаем выполнение, даже если не удалось установить правильные ответы
+                flash(f"Внимание: Не удалось установить правильные ответы. Ошибка: {e}")
         
         # Обновление времени последнего использования для лимитных пользователей
         if access_check["access"] == "limited":

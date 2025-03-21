@@ -213,51 +213,60 @@ def create_form():
             flash("Таблица пуста!")
             return redirect(url_for("home"))
 
-        # Создание формы
+        # Создание формы - теперь только с заголовком
         form_service = build("forms", "v1", credentials=credentials)
         form_data = {
-            "info": {"title": "Автоматический тест"},
-            "items": []
+            "info": {"title": "Автоматический тест"}
         }
 
-        for row in sheet_data:
+        # Создаем форму с минимальной информацией
+        form_response = form_service.forms().create(body=form_data).execute()
+        form_id = form_response.get("formId")
+        
+        # Подготавливаем запросы для batchUpdate
+        batch_update_requests = []
+        
+        for index, row in enumerate(sheet_data):
             if len(row) < 2:
                 continue
 
             question_text = row[0]
             answers = [{"value": a.lstrip("*")} for a in row[1:]]
             
-            # Создаем вопрос без указания правильного ответа
-            question_item = {
-                "title": question_text,
-                "questionItem": {
-                    "question": {
-                        "required": True,
-                        "choiceQuestion": {
-                            "type": "RADIO",
-                            "options": answers,
-                            "shuffle": True
+            # Создаем запрос на добавление вопроса
+            create_item_request = {
+                "createItem": {
+                    "item": {
+                        "title": question_text,
+                        "questionItem": {
+                            "question": {
+                                "required": True,
+                                "choiceQuestion": {
+                                    "type": "RADIO",
+                                    "options": answers,
+                                    "shuffle": True
+                                }
+                            }
                         }
+                    },
+                    "location": {
+                        "index": index
                     }
                 }
             }
             
-            form_data["items"].append(question_item)
-
-        # Создаем форму
-        form_response = form_service.forms().create(body=form_data).execute()
-        form_id = form_response.get("formId")
+            batch_update_requests.append(create_item_request)
+        
+        # Выполняем batchUpdate для добавления всех вопросов сразу
+        if batch_update_requests:
+            form_service.forms().batchUpdate(
+                formId=form_id,
+                body={"requests": batch_update_requests}
+            ).execute()
         
         # Обновление времени последнего использования для лимитных пользователей
         if access_check["access"] == "limited":
             update_last_used(user_email)
-
-        # Если нужно превратить в тест с оценкой, потребуется дополнительный API вызов
-        # Например:
-        # Следующий код, который нужно реализовать, если необходимо установить правильные ответы:
-        # 1. Сначала создаем форму (уже сделано выше)
-        # 2. Конвертируем её в тест
-        # 3. Для каждого вопроса устанавливаем правильный ответ
 
         flash(f"Форма успешно создана: {form_response.get('responderUri')}")
         return redirect(form_response.get("responderUri"))

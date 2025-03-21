@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 USERS_LIMITED = os.getenv("1pLM5IwUV_uj0zLTBx1-5SLtFRtD9PSiW3N6c1-jeuKA")  # ID Google Таблицы для лимитных пользователей
 USERS_UNLIMITED = os.getenv("1IqpytxzUp_ZM40ZypHB31EngMYCV1Ib4RPoZTYjuoWM")  # ID Google Таблицы для безлимитных пользователей
 
+
 # OAuth настройки
 CLIENT_SECRETS_FILE = "client_secrets.json"
 SCOPES = [
@@ -138,11 +139,11 @@ def login():
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
         flash("client_secrets.json not found. Please check your deployment.")
-        return redirect(url_for("index"))
+        return redirect(url_for("home")) # Исправлено на url_for("home")
     except Exception as e:
         logging.error(f"Error during login: {e}")
         flash("Произошла ошибка во время входа.")
-        return redirect(url_for("index"))  # Redirect to index on error
+        return redirect(url_for("home"))  # Redirect to index on error
 
 @app.route("/callback")
 def callback():
@@ -158,15 +159,15 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        return redirect(url_for("index"))
+        return redirect(url_for("home"))  # Исправлено на url_for("home")
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
         flash("client_secrets.json not found. Please check your deployment.")
-        return redirect(url_for("index"))
+        return redirect(url_for("home"))  # Исправлено на url_for("home")
     except Exception as e:
         logging.error(f"Error during callback: {e}")
         flash("Произошла ошибка во время обратного вызова.")
-        return redirect(url_for("index"))  # Redirect to index on error
+        return redirect(url_for("home"))  # Redirect to index on error
 
 @app.route("/create_form", methods=["POST"])
 def create_form():
@@ -181,7 +182,7 @@ def create_form():
         access_check = check_user_access(user_email)
         if "error" in access_check:
             flash(access_check["error"])
-            return redirect(url_for("index"))
+            return redirect(url_for("home")) # Исправлено на url_for("home")
 
         # Получение учетных данных пользователя
         credentials = get_google_credentials()
@@ -193,12 +194,12 @@ def create_form():
         spreadsheet_url = request.form.get("spreadsheet_url")
         if not spreadsheet_url:
             flash("Неверная ссылка на таблицу!")
-            return redirect(url_for("index"))
+            return redirect(url_for("home")) # Исправлено на url_for("home")
 
         sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_url)
         if not sheet_id_match:
             flash("Неверная ссылка на таблицу!")
-            return redirect(url_for("index"))
+            return redirect(url_for("home")) # Исправлено на url_for("home")
 
         sheet_id = sheet_id_match.group(1)
 
@@ -211,7 +212,7 @@ def create_form():
 
         if not sheet_data:
             flash("Таблица пуста!")
-            return redirect(url_for("index"))
+            return redirect(url_for("home")) # Исправлено на url_for("home")
 
         # Создание формы
         form_service = build("forms", "v1", credentials=credentials)
@@ -255,7 +256,7 @@ def create_form():
     except Exception as e:
         logging.error(f"Ошибка при создании формы: {e}")
         flash(f"Ошибка: {e}")
-        return redirect(url_for("index"))
+        return redirect(url_for("home"))
 
 if __name__ == "__main__":
     app.run(debug=True)

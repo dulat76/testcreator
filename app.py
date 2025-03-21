@@ -134,8 +134,12 @@ def login():
         flow.redirect_uri = url_for("callback", _external=True)
         auth_url, _ = flow.authorization_url(prompt="consent")
         return redirect(auth_url)
+    except FileNotFoundError:
+        logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
+        flash("client_secrets.json not found. Please check your deployment.")
+        return redirect(url_for("index"))
     except Exception as e:
-        logging.error(f"Ошибка во время входа: {e}")
+        logging.error(f"Error during login: {e}")
         flash("Произошла ошибка во время входа.")
         return redirect(url_for("index"))  # Redirect to index on error
 
@@ -145,7 +149,8 @@ def callback():
         flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
         flow.redirect_uri = url_for("callback", _external=True)
         flow.fetch_token(authorization_response=request.url)
-        session["credentials"] = json.loads(flow.credentials.to_json())
+        credentials = flow.credentials
+        session["credentials"] = json.loads(credentials.to_json())
 
         # Получаем информацию о пользователе и сохраняем email в сессии
         oauth2_service = build("oauth2", "v2", credentials=get_google_credentials())  # Используем get_google_credentials()
@@ -154,8 +159,12 @@ def callback():
         logging.info(f"User {session['user_email']} logged in successfully.")
 
         return redirect(url_for("index"))
+    except FileNotFoundError:
+        logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
+        flash("client_secrets.json not found. Please check your deployment.")
+        return redirect(url_for("index"))
     except Exception as e:
-        logging.error(f"Ошибка во время обратного вызова: {e}")
+        logging.error(f"Error during callback: {e}")
         flash("Произошла ошибка во время обратного вызова.")
         return redirect(url_for("index"))  # Redirect to index on error
 

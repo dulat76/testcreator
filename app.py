@@ -8,6 +8,13 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from google.auth import default
+
+# Установка пути к файлу учетных данных
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/path/to/client_secrets.json"
+
+# Получение учетных данных
+credentials, project = default()
 
 # Настройки приложения
 app = Flask(__name__)

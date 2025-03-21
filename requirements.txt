@@ -3,7 +3,6 @@ Flask-Session
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-google-auth
 requests
 google-api-python-client
 pandas

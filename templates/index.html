@@ -1,16 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Создание теста</title>
+    <title>Form Creator</title>
 </head>
 <body>
-  <h1>Создание теста из Google Таблицы</h1>
-  <form action="/create_form" method="post">
-      <label for="spreadsheet_url">Ссылка на Google Таблицу:</label><br>
-      <input type="text" id="spreadsheet_url" name="spreadsheet_url" required><br><br>
-      <button type="submit">Создать тест</button>
-  </form>
+    <h1>Create a Google Form</h1>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul>
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% if session['user_email'] %}
+        <p>Logged in as: {{ session['user_email'] }}</p>
+        <form method="post" action="/create_form">
+            <label for="spreadsheet_url">Google Sheet URL:</label><br>
+            <input type="text" id="spreadsheet_url" name="spreadsheet_url"><br><br>
+            <input type="submit" value="Create Form">
+        </form>
+    {% else %}
+        <a href="/login">Login with Google</a>
+    {% endif %}
 </body>
 </html>

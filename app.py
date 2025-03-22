@@ -10,10 +10,10 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google.auth import default
+from markupsafe import Markup  # Import Markup
 
 # Настройки приложения
 app = Flask(__name__)
-#app.config['APPLICATION_ROOT'] = '/test_creator_v4'
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -59,6 +59,7 @@ def check_user_access(user_email):
     try:
         credentials = get_google_credentials()
         if not credentials:
+            logging.error("Не удалось получить учетные данные Google.")
             return {"error": "Could not retrieve Google credentials."}
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -69,9 +70,9 @@ def check_user_access(user_email):
             range="A:A"
         ).execute().get("values", [])
 
-        if any(user_email == row[0] for row in unlimited_users):
+        logging.info(f"Безлимитные пользователи: {unlimited_users}")
+        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row and len(row) > 0):
             return {"access": "unlimited"}
-            #subscription_expiry_date = row[1]
 
         # Проверка лимитных пользователей
         limited_users = sheets_service.spreadsheets().values().get(
@@ -79,17 +80,23 @@ def check_user_access(user_email):
             range="A:C"
         ).execute().get("values", [])
 
-        for row in limited_users:
-            if user_email == row[0]:
-                try:
-                    last_used = datetime.fromisoformat(row[1])
-                    if datetime.now() - last_used < timedelta(hours=24):
-                        return {"error": "Превышен лимит использования."}
-                except ValueError:
-                    logging.warning(f"Неверный формат даты в строке: {row}")
-                    return {"error": "Неверный формат даты."}
-                return {"access": "limited"}
+        logging.info(f"Лимитированные пользователи: {limited_users}")
+        if limited_users:  # Check if limited_users is not empty
+            for row in limited_users:
+                if not row or len(row) < 2:
+                    continue
 
+                if user_email == row[0]:
+                    try:
+                        last_used = datetime.fromisoformat(row[1])
+                        if datetime.now() - last_used < timedelta(hours=24):
+                            return {"error": "Превышен лимит использования."}
+                    except ValueError:
+                        logging.warning(f"Неверный формат даты в строке: {row}")
+                        return {"error": "Неверный формат даты."}
+                    return {"access": "limited"}
+
+        logging.warning(f"Пользователь {user_email} не найден ни в одной таблице.")
         return {"error": "Не авторизован."}
 
     except HttpError as e:
@@ -104,6 +111,7 @@ def update_last_used(user_email):
     try:
         credentials = get_google_credentials()
         if not credentials:
+            logging.error("Не удалось получить учетные данные Google.")
             return
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -113,18 +121,52 @@ def update_last_used(user_email):
         ).execute().get("values", [])
 
         for i, row in enumerate(limited_users):
-            if row[0] == user_email:
+            if row and row[0] == user_email:
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=USERS_LIMITED,
                     range=f"B{i+2}",
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
+                logging.info(f"Время использования обновлено для пользователя {user_email}.")
                 break
     except HttpError as e:
-        logging.error(f"Ошибка Google Sheets API: {e}")
+        logging.error(f"Ошибка Google Sheets API при обновлении времени использования: {e}")
     except Exception as e:
         logging.error(f"Ошибка при обновлении времени последнего использования: {e}")
+
+def add_limited_user(user_email):
+    """Добавление нового пользователя в таблицу USERS_LIMITED."""
+    try:
+        credentials = get_google_credentials()
+        if not credentials:
+            logging.error("Не удалось получить учетные данные Google.")
+            return False  # Indicate failure
+
+        sheets_service = build("sheets", "v4", credentials=credentials)
+        values = [
+            [user_email, datetime.now().isoformat(), ""]  # Email, Timestamp, Usage Count
+        ]
+        body = {
+            'values': values
+        }
+        result = sheets_service.spreadsheets().values().append(
+            spreadsheetId=USERS_LIMITED,
+            range="A:C",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body=body
+        ).execute()
+        logging.info(f"Пользователь {user_email} добавлен в USERS_LIMITED.")
+        return True  # Indicate success
+    except HttpError as e:
+        logging.error(f"Ошибка Google Sheets API при добавлении пользователя: {e}")
+        flash(f"Ошибка при добавлении пользователя: {e}")
+        return False  # Indicate failure
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении пользователя: {e}")
+        flash(f"Ошибка при добавлении пользователя: {e}")
+        return False  # Indicate failure
 
 @app.route("/")
 def home():
@@ -159,6 +201,13 @@ def callback():
         user_info = oauth2_service.userinfo().get().execute()
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
+
+        # Проверяем, есть ли пользователь в таблице USERS_LIMITED, если нет, добавляем
+        if check_user_access(session["user_email"])["error"] == "Не авторизован.":
+            if add_limited_user(session["user_email"]):
+                flash("Вы успешно зарегистрированы. Теперь вы можете создавать тесты.")
+            else:
+                flash("Ошибка при регистрации. Пожалуйста, свяжитесь с администратором.")
 
         return redirect(url_for("home"))
     except FileNotFoundError:
@@ -223,12 +272,14 @@ def create_form():
         try:
             form_response = form_service.forms().create(body=form_data).execute()
             form_id = form_response.get("formId")
-            #edit_link = form_response.get("responderUri")
-            
         except HttpError as e:
             logging.error(f"Error creating form: {e}")
             flash(f"Error creating form: {e}")
             return redirect(url_for("home"))
+
+        form_url = form_response.get("responderUri")
+        edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"  # Ссылка на редактирование формы
+        flash(Markup(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>'))
 
         # Превращаем форму в тест (Quiz)
         form_settings_update = {
@@ -383,7 +434,6 @@ def create_form():
         # Устанавливаем правильные ответы и баллы для каждого вопроса
         for q_idx, item in enumerate(question_items):
             item_id = item.get('itemId')
-
             # Пропускаем, если нет ID
             if not item_id:
                 continue
@@ -405,68 +455,46 @@ def create_form():
                             pass
                         correct_answers.append({"value": answer_text})
 
-                # Если есть правильные ответы
-                if correct_answers:
-                    grade_request = {
-                        "updateItem": {
-                            "item": {
-                                "questionItem": {
-                                    "question": {
-                                        "questionId": item_id,
-                                        "required": True,
-                                        "grading": {
-                                            "pointValue": 1,  # 1 балл за вопрос
-                                            "correctAnswers": {
-                                                "answers": correct_answers  # Используем существующий список словарей
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "updateMask": "questionItem.question.grading",
-                            "location": {
-                                "index": q_idx + 2  # +2 для учета поля ФИО и раздела
+                # Создаем запрос для установки правильных ответов и баллов за вопрос
+                update_grade_request = {
+                    "updateItemFeedback": {
+                        "itemId": item_id,
+                        "feedback": {
+                            "correctAnswers": correct_answers,
+                            "generalFeedback": {
+                                "text": "Спасибо за ваш ответ!"
                             }
                         }
                     }
-                    grade_requests.append(grade_request)
+                }
+                grade_requests.append(update_grade_request)
 
-        # Выполняем запросы на установку правильных ответов
+        # Отправляем запросы для установки правильных ответов и баллов за вопросы
         try:
             if grade_requests:
-                grading_batch_response = form_service.forms().batchUpdate(
+                grade_response = form_service.forms().batchUpdate(
                     formId=form_id,
                     body={"requests": grade_requests}
                 ).execute()
-                logging.info("Successfully updated correct answers and grading for the form.")
-                flash("Тест успешно создан!")
         except HttpError as e:
             logging.error(f"Error updating correct answers: {e}")
             flash(f"Error updating correct answers: {e}")
             return redirect(url_for("home"))
 
-        # Обновляем время последнего использования для лимитных пользователей
-        update_last_used(user_email)
+        if access_check["access"] == "limited":
+            update_last_used(user_email)
 
-        # Возвращаем ссылку на созданную форму
-        form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
-        edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"
-        #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
-        #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
-        flash(f' <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
-        #flash(f'Подписка действительна до {subscription_expiry_date}')
-        return redirect(url_for("home"))
+        # Получаем дату окончания подписки для безлимитных пользователей
+        if USERS_UNLIMITED and access_check["access"] == "unlimited":
+            expiry_date = get_subscription_expiry(user_email)
+            return render_template("index.html", subscription_info={"expiry_date": expiry_date})
+        else:
+            return redirect(url_for("home")) # Вернуться на главную страницу
 
     except Exception as e:
-        logging.error(f"Произошла общая ошибка: {e}")
+        logging.error(f"Error creating form: {e}")
         flash(f"Произошла ошибка при создании формы: {e}")
         return redirect(url_for("home"))
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    flash("Вы вышли из системы.")
-    return redirect(url_for("home"))
 
 if __name__ == "__main__":
     app.run(debug=True)

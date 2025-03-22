@@ -69,8 +69,8 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         if any(user_email == row[0] for row in unlimited_users):
-            #subscription_expiry_date = row[1]
             return {"access": "unlimited"}
+            #subscription_expiry_date = row[1]
 
         # Проверка лимитных пользователей
         limited_users = sheets_service.spreadsheets().values().get(
@@ -449,8 +449,9 @@ def create_form():
 
         # Возвращаем ссылку на созданную форму
         form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
-        flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
-        flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
+        #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
+        #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
+        flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
         #flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 

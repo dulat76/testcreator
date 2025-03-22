@@ -59,7 +59,6 @@ def check_user_access(user_email):
     try:
         credentials = get_google_credentials()
         if not credentials:
-            logging.error("Не удалось получить учетные данные Google.")
             return {"error": "Could not retrieve Google credentials."}
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -70,8 +69,7 @@ def check_user_access(user_email):
             range="A:A"
         ).execute().get("values", [])
 
-        logging.info(f"Безлимитные пользователи: {unlimited_users}")
-        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row and len(row) > 0):
+        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row):
             return {"access": "unlimited"}
 
         # Проверка лимитных пользователей
@@ -80,23 +78,20 @@ def check_user_access(user_email):
             range="A:C"
         ).execute().get("values", [])
 
-        logging.info(f"Лимитированные пользователи: {limited_users}")
-        if limited_users:  # Check if limited_users is not empty
-            for row in limited_users:
-                if not row or len(row) < 2:
-                    continue
+        for row in limited_users:
+            if not row or len(row) < 2:
+                continue
 
-                if user_email == row[0]:
-                    try:
-                        last_used = datetime.fromisoformat(row[1])
-                        if datetime.now() - last_used < timedelta(hours=24):
-                            return {"error": "Превышен лимит использования."}
-                    except ValueError:
-                        logging.warning(f"Неверный формат даты в строке: {row}")
-                        return {"error": "Неверный формат даты."}
-                    return {"access": "limited"}
+            if user_email == row[0]:
+                try:
+                    last_used = datetime.fromisoformat(row[1])
+                    if datetime.now() - last_used < timedelta(hours=24):
+                        return {"error": "Превышен лимит использования."}
+                except ValueError:
+                    logging.warning(f"Неверный формат даты в строке: {row}")
+                    return {"error": "Неверный формат даты."}
+                return {"access": "limited"}
 
-        logging.warning(f"Пользователь {user_email} не найден ни в одной таблице.")
         return {"error": "Не авторизован."}
 
     except HttpError as e:
@@ -111,7 +106,6 @@ def update_last_used(user_email):
     try:
         credentials = get_google_credentials()
         if not credentials:
-            logging.error("Не удалось получить учетные данные Google.")
             return
 
         sheets_service = build("sheets", "v4", credentials=credentials)
@@ -128,10 +122,9 @@ def update_last_used(user_email):
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
-                logging.info(f"Время использования обновлено для пользователя {user_email}.")
                 break
     except HttpError as e:
-        logging.error(f"Ошибка Google Sheets API при обновлении времени использования: {e}")
+        logging.error(f"Ошибка Google Sheets API: {e}")
     except Exception as e:
         logging.error(f"Ошибка при обновлении времени последнего использования: {e}")
 
@@ -484,12 +477,7 @@ def create_form():
         if access_check["access"] == "limited":
             update_last_used(user_email)
 
-        # Получаем дату окончания подписки для безлимитных пользователей
-        if USERS_UNLIMITED and access_check["access"] == "unlimited":
-            expiry_date = get_subscription_expiry(user_email)
-            return render_template("index.html", subscription_info={"expiry_date": expiry_date})
-        else:
-            return redirect(url_for("home")) # Вернуться на главную страницу
+        return redirect(url_for("home"))
 
     except Exception as e:
         logging.error(f"Error creating form: {e}")

@@ -44,7 +44,7 @@ def add_user_to_limited(user_email):
         # Получаем текущий список пользователей
         limited_users = sheets_service.spreadsheets().values().get(
             spreadsheetId=USERS_LIMITED,
-            range="A:A"
+            range="A:A"  # Проверяем только колонку с email
         ).execute().get("values", [])
 
         # Проверяем, существует ли пользователь уже в таблице
@@ -55,7 +55,7 @@ def add_user_to_limited(user_email):
         new_user_row = [user_email, datetime.now().isoformat()]
         sheets_service.spreadsheets().values().append(
             spreadsheetId=USERS_LIMITED,
-            range="A1",
+            range="A:B",  # Указываем диапазон для добавления данных в колонки A и B
             valueInputOption="RAW",
             body={"values": [new_user_row]}
         ).execute()
@@ -68,6 +68,7 @@ def add_user_to_limited(user_email):
     except Exception as e:
         logging.error(f"Ошибка при добавлении пользователя: {e}")
         return {"error": "Произошла ошибка при добавлении пользователя."}
+    
     
 def get_google_credentials():
     """Получение учетных данных Google из сессии."""

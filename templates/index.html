@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Автоматическое создание тестов в Google Forms</title>
+    <title>Form Creator</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -94,7 +94,7 @@
 
         .messages li {
             padding: 10px;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
             background-color: #f0f8ff;
             border-radius: 4px;
             color: #333;
@@ -137,7 +137,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Создание Google формы</h1>
+        <h1>Create a Google Form</h1>
 
         {% with messages = get_flashed_messages() %}
           {% if messages %}
@@ -157,14 +157,14 @@
             <!-- Форма для ввода ссылки на таблицу -->
             <form method="post" action="/create_form" onsubmit="showLoading()">
                 <label for="spreadsheet_url">Google Sheet URL:</label><br>
-                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Вставьте ссылку на гугл таблицу"><br>
+                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Paste your Google Sheet URL here"><br>
                 <input type="submit" value="Create Form">
             </form>
 
             <!-- Анимация загрузки -->
             <div id="loading">
                 <div class="spinner"></div>
-                <p>Создаю форму, подождите пожалуйста...</p>
+                <p>Creating your form, please wait...</p>
             </div>
 
             <!-- Информация о подписке для безлимитных пользователей -->
@@ -175,7 +175,7 @@
             {% endif %}
 
         {% else %}
-            <a href="/login" class="login-button">Войти с помощью Google</a>
+            <a href="/login" class="login-button">Login with Google</a>
         {% endif %}
     </div>
 

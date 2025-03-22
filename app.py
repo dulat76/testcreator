@@ -452,7 +452,7 @@ def create_form():
         edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"
         #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
         #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
-        flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
+        flash(f' <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
         #flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 

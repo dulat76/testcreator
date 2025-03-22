@@ -10,10 +10,10 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google.auth import default
-from markupsafe import Markup  # Import Markup
 
 # Настройки приложения
 app = Flask(__name__)
+#app.config['APPLICATION_ROOT'] = '/test_creator_v4'
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -69,8 +69,9 @@ def check_user_access(user_email):
             range="A:A"
         ).execute().get("values", [])
 
-        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row):
+        if any(user_email == row[0] for row in unlimited_users):
             return {"access": "unlimited"}
+            #subscription_expiry_date = row[1]
 
         # Проверка лимитных пользователей
         limited_users = sheets_service.spreadsheets().values().get(
@@ -79,21 +80,17 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         for row in limited_users:
-            if not row or len(row) < 1:  # Проверяем только наличие email
-                continue
-
             if user_email == row[0]:
-                if len(row) >= 2:  # Проверяем, есть ли дата последнего использования
-                    try:
-                        last_used = datetime.fromisoformat(row[1])
-                        if datetime.now() - last_used < timedelta(hours=24):
-                            return {"error": "Превышен лимит использования."}
-                    except (ValueError, IndexError):
-                        logging.warning(f"Неверный формат даты в строке: {row}")
+                try:
+                    last_used = datetime.fromisoformat(row[1])
+                    if datetime.now() - last_used < timedelta(hours=24):
+                        return {"error": "Превышен лимит использования."}
+                except ValueError:
+                    logging.warning(f"Неверный формат даты в строке: {row}")
+                    return {"error": "Неверный формат даты."}
                 return {"access": "limited"}
 
-        # Если пользователь не найден в обеих таблицах
-        return {"access": "not_found"}  # Изменили статус на более точный
+        return {"error": "Не авторизован."}
 
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
@@ -116,10 +113,10 @@ def update_last_used(user_email):
         ).execute().get("values", [])
 
         for i, row in enumerate(limited_users):
-            if row and row[0] == user_email:
+            if row[0] == user_email:
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=USERS_LIMITED,
-                    range=f"B{i+1}",
+                    range=f"B{i+2}",
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
@@ -128,57 +125,6 @@ def update_last_used(user_email):
         logging.error(f"Ошибка Google Sheets API: {e}")
     except Exception as e:
         logging.error(f"Ошибка при обновлении времени последнего использования: {e}")
-
-def add_limited_user(user_email):
-    """Добавление нового пользователя в таблицу USERS_LIMITED."""
-    try:
-        credentials = get_google_credentials()
-        if not credentials:
-            logging.error("Не удалось получить учетные данные Google.")
-            return False
-
-        sheets_service = build("sheets", "v4", credentials=credentials)
-
-        # Сначала проверим, существует ли пользователь уже в таблице
-        # чтобы избежать дублирования
-        limited_users = sheets_service.spreadsheets().values().get(
-            spreadsheetId=USERS_LIMITED,
-            range="A:A"
-        ).execute().get("values", [])
-
-        # Если пользователь уже существует, возвращаем True
-        if limited_users and any(user_email == row[0] for row in limited_users if row):
-            logging.info(f"Пользователь {user_email} уже существует в USERS_LIMITED.")
-            return True
-
-        # Подготавливаем данные для добавления
-        values = [
-            [user_email, datetime.now().isoformat(), ""]  # Email, Timestamp, Usage Count
-        ]
-        body = {
-            'values': values
-        }
-
-        # Добавляем пользователя
-        result = sheets_service.spreadsheets().values().append(
-            spreadsheetId=USERS_LIMITED,
-            range="A:C",
-            valueInputOption="USER_ENTERED",
-            insertDataOption="INSERT_ROWS",
-            body=body
-        ).execute()
-
-        logging.info(f"Пользователь {user_email} добавлен в USERS_LIMITED.")
-        return True
-
-    except HttpError as e:
-        logging.error(f"Ошибка Google Sheets API при добавлении пользователя: {e}")
-        flash(f"Ошибка при добавлении пользователя: {e}")
-        return False
-    except Exception as e:
-        logging.error(f"Ошибка при добавлении пользователя: {e}")
-        flash(f"Ошибка при добавлении пользователя: {e}")
-        return False
 
 @app.route("/")
 def home():
@@ -214,17 +160,6 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        # Проверяем, есть ли пользователь в таблицах доступа
-        access_status = check_user_access(session["user_email"])
-
-        # Если пользователя нет в таблицах, добавляем его в USERS_LIMITED
-        if access_status.get("access") == "not_found":
-            if add_limited_user(session["user_email"]):
-                flash("Вы успешно зарегистрированы. Теперь вы можете создавать тесты.")
-                logging.info(f"Пользователь {session['user_email']} успешно добавлен как лимитный.")
-            else:
-                flash("Ошибка при регистрации. Пожалуйста, свяжитесь с администратором.")
-                logging.error(f"Не удалось добавить пользователя {session['user_email']} в таблицу.")
         return redirect(url_for("home"))
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
@@ -288,14 +223,12 @@ def create_form():
         try:
             form_response = form_service.forms().create(body=form_data).execute()
             form_id = form_response.get("formId")
+            #edit_link = form_response.get("responderUri")
+            
         except HttpError as e:
             logging.error(f"Error creating form: {e}")
             flash(f"Error creating form: {e}")
             return redirect(url_for("home"))
-
-        form_url = form_response.get("responderUri")
-        edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"  # Ссылка на редактирование формы
-        flash(Markup(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>'))
 
         # Превращаем форму в тест (Quiz)
         form_settings_update = {
@@ -390,117 +323,150 @@ def create_form():
                     correct_answers.append({"value": answer_text})
                     correct_indices.append(i)
 
-            # Определяем тип вопроса
-            if len(correct_answers) > 1:
-                question_type = "CHECKBOX"  # Несколько правильных ответов
-            else:
-                question_type = "RADIO"  # Один правильный ответ
+            # Определяем тип вопроса в зависимости от количества правильных ответов
+            question_type = "CHECKBOX" if len(correct_answers) > 1 else "RADIO"
 
-            # Создаем вопрос
-            if question_type == "RADIO":
-                question = {
-                    "createItem": {
-                        "item": {
-                            "title": question_text,
-                            "questionItem": {
-                                "question": {
-                                    "required": True,
-                                    "choiceQuestion": {
-                                        "type": "RADIO",
-                                        "options": options,
-                                        "shuffle": True
-                                    }
+            # Создаем запрос на добавление вопроса
+            create_item_request = {
+                "createItem": {
+                    "item": {
+                        "title": question_text,
+                        "questionItem": {
+                            "question": {
+                                "required": True,
+                                "choiceQuestion": {
+                                    "type": question_type,
+                                    "options": options,
+                                    "shuffle": True
                                 }
-                            },
-                        },
-                        "location": {
-                            "index": question_index
+                            }
                         }
+                    },
+                    "location": {
+                        "index": question_index
                     }
                 }
-                batch_update_requests.append(question)
-                # Добавляем ключ к вопросу
-                if correct_answers:
-                    feedback = {
-                        "correctAnswers": [{"value": correct_answers[0]["value"]}],
-                        "pointsEarned": 1  # Или другое количество баллов
-                    }
-                    update_mask = "correctAnswers,pointsEarned"
+            }
 
-                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index-2]['questionItem']['question']['questionId']
+            batch_update_requests.append(create_item_request)
+            question_index += 1
 
-                    batch_update_requests.append({
-                        "updateItemFeedback": {
-                            "itemId": question_id,
-                            "feedback": feedback,
-                            "updateMask": update_mask
-                        }
-                    })
-
-            elif question_type == "CHECKBOX":
-                question = {
-                    "createItem": {
-                        "item": {
-                            "title": question_text,
-                            "questionItem": {
-                                "question": {
-                                    "required": True,
-                                    "choiceQuestion": {
-                                        "type": "CHECKBOX",
-                                        "options": options,
-                                        "shuffle": True
-                                    }
-                                }
-                            },
-                        },
-                        "location": {
-                            "index": question_index
-                        }
-                    }
-                }
-                batch_update_requests.append(question)
-
-                # Добавляем ключ к вопросу с несколькими вариантами ответов
-                if correct_answers:
-                    feedback = {
-                        "correctAnswers": correct_answers,
-                        "pointsEarned": 1  # Или другое количество баллов
-                    }
-                    update_mask = "correctAnswers,pointsEarned"
-
-                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index-2]['questionItem']['question']['questionId']
-
-                    batch_update_requests.append({
-                        "updateItemFeedback": {
-                            "itemId": question_id,
-                            "feedback": feedback,
-                            "updateMask": update_mask
-                        }
-                    })
-
-            question_index += 1  # Увеличиваем индекс для следующего вопроса
-
-        # Выполняем запросы на обновление формы
+        # Выполняем batchUpdate для добавления всех элементов (поле ФИО, раздел и вопросы)
         try:
-            form_service.forms().batchUpdate(formId=form_id, body={"requests": batch_update_requests}).execute()
+            if batch_update_requests:
+                batch_response = form_service.forms().batchUpdate(
+                    formId=form_id,
+                    body={"requests": batch_update_requests}
+                ).execute()
         except HttpError as e:
             logging.error(f"Error updating form with questions: {e}")
             flash(f"Error updating form with questions: {e}")
             return redirect(url_for("home"))
 
-        # Обновляем время последнего использования
+        # Получим информацию о созданной форме, чтобы узнать ID каждого вопроса
+        try:
+            form_info = form_service.forms().get(formId=form_id).execute()
+        except HttpError as e:
+            logging.error(f"Error getting form info: {e}")
+            flash(f"Error getting form info: {e}")
+            return redirect(url_for("home"))
+
+        # Готовим запросы для установки правильных ответов и баллов
+        grade_requests = []
+
+        # Находим все вопросы, кроме поля ФИО
+        question_items = []
+        for item in form_info.get('items', []):
+            if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {}):
+                question_items.append(item)
+
+        # Устанавливаем правильные ответы и баллы для каждого вопроса
+        for q_idx, item in enumerate(question_items):
+            item_id = item.get('itemId')
+
+            # Пропускаем, если нет ID
+            if not item_id:
+                continue
+
+            # Получаем данные вопроса из исходных данных таблицы
+            if q_idx < len(sheet_data):
+                row = sheet_data[q_idx]
+
+                # Определяем правильные ответы
+                correct_answers = []
+                for i, answer in enumerate(row[1:]):
+                    if answer.startswith("*"):
+                        answer_text = answer.lstrip("*")
+                        # Преобразование числовых значений в текст
+                        try:
+                            if answer_text.replace('.', '', 1).isdigit():
+                                answer_text = str(answer_text)
+                        except:
+                            pass
+                        correct_answers.append({"value": answer_text})
+
+                # Если есть правильные ответы
+                if correct_answers:
+                    grade_request = {
+                        "updateItem": {
+                            "item": {
+                                "questionItem": {
+                                    "question": {
+                                        "questionId": item_id,
+                                        "required": True,
+                                        "grading": {
+                                            "pointValue": 1,  # 1 балл за вопрос
+                                            "correctAnswers": {
+                                                "answers": correct_answers  # Используем существующий список словарей
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "updateMask": "questionItem.question.grading",
+                            "location": {
+                                "index": q_idx + 2  # +2 для учета поля ФИО и раздела
+                            }
+                        }
+                    }
+                    grade_requests.append(grade_request)
+
+        # Выполняем запросы на установку правильных ответов
+        try:
+            if grade_requests:
+                grading_batch_response = form_service.forms().batchUpdate(
+                    formId=form_id,
+                    body={"requests": grade_requests}
+                ).execute()
+                logging.info("Successfully updated correct answers and grading for the form.")
+                flash("Тест успешно создан!")
+        except HttpError as e:
+            logging.error(f"Error updating correct answers: {e}")
+            flash(f"Error updating correct answers: {e}")
+            return redirect(url_for("home"))
+
+        # Обновляем время последнего использования для лимитных пользователей
         update_last_used(user_email)
 
+        # Возвращаем ссылку на созданную форму
+        form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
+        edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"
+        #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
+        #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
+        flash(f' <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
+        #flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 
-    except HttpError as e:
-        logging.error(f"Google Forms API error: {e}")
-        flash(f"Google Forms API error: {e}")
-        return redirect(url_for("home"))
     except Exception as e:
-        logging.error(f"Произошла ошибка: {e}")
-        flash(f"Произошла ошибка: {e}")
+        logging.error(f"Произошла общая ошибка: {e}")
+        flash(f"Произошла ошибка при создании формы: {e}")
         return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Вы вышли из системы.")
+    return redirect(url_for("home"))
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(debug=True)

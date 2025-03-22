@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Form Creator</title>
+    <title>Автоматическое создание тестов в Google Forms</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -77,28 +77,6 @@
             to { transform: rotate(360deg); }
         }
 
-        .success-links {
-            margin-top: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .success-links a {
-            display: inline-block;
-            margin: 8px 0;
-            padding: 10px 20px;
-            background-color: #4285f4;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-
-        .success-links a:hover {
-            background-color: #3367d6;
-        }
-
         .subscription-info {
             margin-top: 20px;
             font-size: 14px;
@@ -117,9 +95,24 @@
         .messages li {
             padding: 10px;
             margin-bottom: 5px;
-            background-color: #fff3cd;
+            background-color: #f0f8ff;
             border-radius: 4px;
-            color: #856404;
+            color: #333;
+        }
+
+        .messages a {
+            display: inline-block;
+            margin: 5px 0;
+            padding: 8px 15px;
+            background-color: #4285f4;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+
+        .messages a:hover {
+            background-color: #3367d6;
         }
 
         .login-button {
@@ -144,13 +137,13 @@
 </head>
 <body>
     <div class="container">
-        <h1>Create a Google Form</h1>
+        <h1>Создание Google формы</h1>
 
         {% with messages = get_flashed_messages() %}
           {% if messages %}
             <ul class="messages">
             {% for message in messages %}
-              <li>{{ message }}</li>
+              <li>{{ message | safe }}</li>
             {% endfor %}
             </ul>
           {% endif %}
@@ -164,23 +157,15 @@
             <!-- Форма для ввода ссылки на таблицу -->
             <form method="post" action="/create_form" onsubmit="showLoading()">
                 <label for="spreadsheet_url">Google Sheet URL:</label><br>
-                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Paste your Google Sheet URL here"><br>
+                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Вставьте ссылку на гугл таблицу"><br>
                 <input type="submit" value="Create Form">
             </form>
 
             <!-- Анимация загрузки -->
             <div id="loading">
                 <div class="spinner"></div>
-                <p>Creating your form, please wait...</p>
+                <p>Создаю форму, подождите пожалуйста...</p>
             </div>
-
-            <!-- Ссылки после создания формы -->
-            {% if form_links %}
-              <div class="success-links">
-                  <a href="{{ form_links.view_url | escape }}" target="_blank">View Form</a>
-                  <a href="{{ form_links.edit_url | escape }}" target="_blank">Edit Form</a>
-              </div>
-            {% endif %}
 
             <!-- Информация о подписке для безлимитных пользователей -->
             {% if subscription_info %}
@@ -190,7 +175,7 @@
             {% endif %}
 
         {% else %}
-            <a href="/login" class="login-button">Login with Google</a>
+            <a href="/login" class="login-button">Войти с помощью Google</a>
         {% endif %}
     </div>
 

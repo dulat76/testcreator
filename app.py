@@ -69,7 +69,7 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         if any(user_email == row[0] for row in unlimited_users):
-            subscription_expiry_date = row[1]
+            #subscription_expiry_date = row[1]
             return {"access": "unlimited"}
 
         # Проверка лимитных пользователей
@@ -451,7 +451,7 @@ def create_form():
         form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
         flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
         flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
-        flash(f'Подписка действительна до {subscription_expiry_date}')
+        #flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 
     except Exception as e:

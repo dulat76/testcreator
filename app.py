@@ -79,20 +79,21 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         for row in limited_users:
-            if not row or len(row) < 2:
+            if not row or len(row) < 1:  # Проверяем только наличие email
                 continue
 
             if user_email == row[0]:
-                try:
-                    last_used = datetime.fromisoformat(row[1])
-                    if datetime.now() - last_used < timedelta(hours=24):
-                        return {"error": "Превышен лимит использования."}
-                except ValueError:
-                    logging.warning(f"Неверный формат даты в строке: {row}")
-                    return {"error": "Неверный формат даты."}
+                if len(row) >= 2:  # Проверяем, есть ли дата последнего использования
+                    try:
+                        last_used = datetime.fromisoformat(row[1])
+                        if datetime.now() - last_used < timedelta(hours=24):
+                            return {"error": "Превышен лимит использования."}
+                    except (ValueError, IndexError):
+                        logging.warning(f"Неверный формат даты в строке: {row}")
                 return {"access": "limited"}
 
-        return {"error": "Не авторизован."}
+        # Если пользователь не найден в обеих таблицах
+        return {"access": "not_found"}  # Изменили статус на более точный
 
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
@@ -118,7 +119,7 @@ def update_last_used(user_email):
             if row and row[0] == user_email:
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=USERS_LIMITED,
-                    range=f"B{i+2}",
+                    range=f"B{i+1}",
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
@@ -134,15 +135,31 @@ def add_limited_user(user_email):
         credentials = get_google_credentials()
         if not credentials:
             logging.error("Не удалось получить учетные данные Google.")
-            return False  # Indicate failure
+            return False
 
         sheets_service = build("sheets", "v4", credentials=credentials)
+        
+        # Сначала проверим, существует ли пользователь уже в таблице
+        # чтобы избежать дублирования
+        limited_users = sheets_service.spreadsheets().values().get(
+            spreadsheetId=USERS_LIMITED,
+            range="A:A"
+        ).execute().get("values", [])
+        
+        # Если пользователь уже существует, возвращаем True
+        if limited_users and any(user_email == row[0] for row in limited_users if row):
+            logging.info(f"Пользователь {user_email} уже существует в USERS_LIMITED.")
+            return True
+            
+        # Подготавливаем данные для добавления
         values = [
             [user_email, datetime.now().isoformat(), ""]  # Email, Timestamp, Usage Count
         ]
         body = {
             'values': values
         }
+        
+        # Добавляем пользователя
         result = sheets_service.spreadsheets().values().append(
             spreadsheetId=USERS_LIMITED,
             range="A:C",
@@ -150,16 +167,18 @@ def add_limited_user(user_email):
             insertDataOption="INSERT_ROWS",
             body=body
         ).execute()
+        
         logging.info(f"Пользователь {user_email} добавлен в USERS_LIMITED.")
-        return True  # Indicate success
+        return True
+        
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API при добавлении пользователя: {e}")
         flash(f"Ошибка при добавлении пользователя: {e}")
-        return False  # Indicate failure
+        return False
     except Exception as e:
         logging.error(f"Ошибка при добавлении пользователя: {e}")
         flash(f"Ошибка при добавлении пользователя: {e}")
-        return False  # Indicate failure
+        return False
 
 @app.route("/")
 def home():
@@ -195,12 +214,17 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        # Проверяем, есть ли пользователь в таблице USERS_LIMITED, если нет, добавляем
-        if check_user_access(session["user_email"])["error"] == "Не авторизован.":
+        # Проверяем, есть ли пользователь в таблицах доступа
+        access_status = check_user_access(session["user_email"])
+        
+        # Если пользователя нет в таблицах, добавляем его в USERS_LIMITED
+        if access_status.get("access") == "not_found":
             if add_limited_user(session["user_email"]):
                 flash("Вы успешно зарегистрированы. Теперь вы можете создавать тесты.")
+                logging.info(f"Пользователь {session['user_email']} успешно добавлен как лимитный.")
             else:
                 flash("Ошибка при регистрации. Пожалуйста, свяжитесь с администратором.")
+                logging.error(f"Не удалось добавить пользователя {session['user_email']} в таблицу.")
 
         return redirect(url_for("home"))
     except FileNotFoundError:

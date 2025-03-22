@@ -2,46 +2,107 @@
 <html>
 <head>
     <title>Form Creator</title>
-    <script>
-      async function createForm() {
-          const spinner = document.getElementById('spinner');
-          const resultDiv = document.getElementById('result');
-          spinner.style.display = 'block';
-          resultDiv.innerHTML = '';
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
 
-          const formData = new FormData(document.getElementById('form'));
-          const response = await fetch('/create_form', {
-              method: 'POST',
-              body: formData,
-          });
+        #spreadsheet_url {
+            width: 400px; /* Увеличена ширина поля ввода */
+        }
 
-          spinner.style.display = 'none';
-          if (response.ok) {
-              const data = await response.json();
-              resultDiv.innerHTML =
-                  `<p>Ссылка на форму: <a href="${data.form_link}" target="_blank">${data.form_link}</a></p>
-                   <p>Ссылка на редактирование: <a href="${data.edit_link}" target="_blank">${data.edit_link}</a></p>
-                   <p>Подписка действует до: ${data.subscription_expiry_date}</p>`;
-          } else {
-              resultDiv.innerHTML =
-                  '<p>Произошла ошибка при создании формы.</p>';
-          }
-      }
-    </script>
+        #loading {
+            display: none; /* Скрыто по умолчанию */
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #000;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .success-links {
+            margin-top: 20px;
+        }
+
+        .success-links a {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .subscription-info {
+            margin-top: 20px;
+            font-size: 14px;
+            color: green;
+        }
+    </style>
 </head>
 <body>
-  <h1>Create a Google Form</h1>
-  {% if session['user_email'] %}
-      <p>Logged in as: {{ session['user_email'] }}</p>
-      <form id="form" onsubmit="event.preventDefault(); createForm();">
-          <label for="spreadsheet_url">Google Sheet URL:</label><br>
-          <input type="text" id="spreadsheet_url" name="spreadsheet_url"><br><br>
-          <button type="submit">Create Form</button>
-      </form>
-      <div id="spinner" style="display:none;">Создание формы...</div>
-      <div id="result"></div>
-  {% else %}
-      <a href="/login">Login with Google</a>
-  {% endif %}
+    <h1>Create a Google Form</h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul>
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if session['user_email'] %}
+        <p>Logged in as: {{ session['user_email'] }}</p>
+
+        <!-- Форма для ввода ссылки на таблицу -->
+        <form method="post" action="/create_form" onsubmit="showLoading()">
+            <label for="spreadsheet_url">Google Sheet URL:</label><br>
+            <input type="text" id="spreadsheet_url" name="spreadsheet_url"><br><br>
+            <input type="submit" value="Create Form">
+        </form>
+
+        <!-- Анимация загрузки -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <p>Creating your form, please wait...</p>
+        </div>
+
+        <!-- Ссылки после создания формы -->
+        {% if form_links %}
+          <div class="success-links">
+              <a href="{{ form_links.view_url }}" target="_blank">View Form</a>
+              <a href="{{ form_links.edit_url }}" target="_blank">Edit Form</a>
+          </div>
+        {% endif %}
+
+        <!-- Информация о подписке для безлимитных пользователей -->
+        {% if subscription_info %}
+          <div class="subscription-info">
+              Subscription valid until: {{ subscription_info.expiry_date }}
+          </div>
+        {% endif %}
+
+    {% else %}
+        <a href="/login">Login with Google</a>
+    {% endif %}
+
+    <script>
+      function showLoading() {
+          document.getElementById('loading').style.display = 'block';
+      }
+    </script>
 </body>
 </html>

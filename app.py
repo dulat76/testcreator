@@ -69,7 +69,7 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         if any(user_email == row[0] for row in unlimited_users):
-            subscription_expiry_date = str(row[1])
+            subscription_expiry_date = row[1]
             return {"access": "unlimited"}
 
         # Проверка лимитных пользователей

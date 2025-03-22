@@ -197,7 +197,7 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-         # Добавляем пользователя в таблицу лимитных пользователей, если его там нет
+        # Добавляем пользователя в таблицу лимитных пользователей, если его там нет
         add_user_to_limited(session["user_email"])
 
         return redirect(url_for("home"))

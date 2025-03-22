@@ -138,19 +138,19 @@ def add_limited_user(user_email):
             return False
 
         sheets_service = build("sheets", "v4", credentials=credentials)
-        
+
         # Сначала проверим, существует ли пользователь уже в таблице
         # чтобы избежать дублирования
         limited_users = sheets_service.spreadsheets().values().get(
             spreadsheetId=USERS_LIMITED,
             range="A:A"
         ).execute().get("values", [])
-        
+
         # Если пользователь уже существует, возвращаем True
         if limited_users and any(user_email == row[0] for row in limited_users if row):
             logging.info(f"Пользователь {user_email} уже существует в USERS_LIMITED.")
             return True
-            
+
         # Подготавливаем данные для добавления
         values = [
             [user_email, datetime.now().isoformat(), ""]  # Email, Timestamp, Usage Count
@@ -158,7 +158,7 @@ def add_limited_user(user_email):
         body = {
             'values': values
         }
-        
+
         # Добавляем пользователя
         result = sheets_service.spreadsheets().values().append(
             spreadsheetId=USERS_LIMITED,
@@ -167,10 +167,10 @@ def add_limited_user(user_email):
             insertDataOption="INSERT_ROWS",
             body=body
         ).execute()
-        
+
         logging.info(f"Пользователь {user_email} добавлен в USERS_LIMITED.")
         return True
-        
+
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API при добавлении пользователя: {e}")
         flash(f"Ошибка при добавлении пользователя: {e}")
@@ -216,7 +216,7 @@ def callback():
 
         # Проверяем, есть ли пользователь в таблицах доступа
         access_status = check_user_access(session["user_email"])
-        
+
         # Если пользователя нет в таблицах, добавляем его в USERS_LIMITED
         if access_status.get("access") == "not_found":
             if add_limited_user(session["user_email"]):
@@ -419,17 +419,15 @@ def create_form():
                     }
                 }
                 batch_update_requests.append(question)
-
                 # Добавляем ключ к вопросу
                 if correct_answers:
-                    correct_answer_value = correct_answers[0]["value"]
                     feedback = {
-                        "correctAnswers": [{"value": correct_answer_value}],
+                        "correctAnswers": [{"value": correct_answers[0]["value"]}],
                         "pointsEarned": 1  # Или другое количество баллов
                     }
                     update_mask = "correctAnswers,pointsEarned"
 
-                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index]['questionItem']['question']['questionId']
+                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index-2]['questionItem']['question']['questionId']
 
                     batch_update_requests.append({
                         "updateItemFeedback": {
@@ -470,8 +468,7 @@ def create_form():
                     }
                     update_mask = "correctAnswers,pointsEarned"
 
-                    # Получаем ID вопроса после его создания
-                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index]['questionItem']['question']['questionId']
+                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index-2]['questionItem']['question']['questionId']
 
                     batch_update_requests.append({
                         "updateItemFeedback": {
@@ -480,7 +477,7 @@ def create_form():
                             "updateMask": update_mask
                         }
                     })
-            
+
             question_index += 1  # Увеличиваем индекс для следующего вопроса
 
         # Выполняем запросы на обновление формы
@@ -493,7 +490,7 @@ def create_form():
 
         # Обновляем время последнего использования
         update_last_used(user_email)
-        
+
         return redirect(url_for("home"))
 
     except HttpError as e:

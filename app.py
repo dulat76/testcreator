@@ -225,7 +225,6 @@ def callback():
             else:
                 flash("Ошибка при регистрации. Пожалуйста, свяжитесь с администратором.")
                 logging.error(f"Не удалось добавить пользователя {session['user_email']} в таблицу.")
-
         return redirect(url_for("home"))
     except FileNotFoundError:
         logging.error(f"client_secrets.json not found. Ensure it is in the same directory as the script.")
@@ -391,122 +390,120 @@ def create_form():
                     correct_answers.append({"value": answer_text})
                     correct_indices.append(i)
 
-            # Определяем тип вопроса в зависимости от количества правильных ответов
-            question_type = "CHECKBOX" if len(correct_answers) > 1 else "RADIO"
+            # Определяем тип вопроса
+            if len(correct_answers) > 1:
+                question_type = "CHECKBOX"  # Несколько правильных ответов
+            else:
+                question_type = "RADIO"  # Один правильный ответ
 
-            # Создаем запрос на добавление вопроса
-            create_item_request = {
-                "createItem": {
-                    "item": {
-                        "title": question_text,
-                        "questionItem": {
-                            "question": {
-                                "required": True,
-                                "choiceQuestion": {
-                                    "type": question_type,
-                                    "options": options,
-                                    "shuffle": True
+            # Создаем вопрос
+            if question_type == "RADIO":
+                question = {
+                    "createItem": {
+                        "item": {
+                            "title": question_text,
+                            "questionItem": {
+                                "question": {
+                                    "required": True,
+                                    "choiceQuestion": {
+                                        "type": "RADIO",
+                                        "options": options,
+                                        "shuffle": True
+                                    }
                                 }
-                            }
+                            },
+                        },
+                        "location": {
+                            "index": question_index
                         }
-                    },
-                    "location": {
-                        "index": question_index
                     }
                 }
-            }
+                batch_update_requests.append(question)
 
-            batch_update_requests.append(create_item_request)
-            question_index += 1
+                # Добавляем ключ к вопросу
+                if correct_answers:
+                    correct_answer_value = correct_answers[0]["value"]
+                    feedback = {
+                        "correctAnswers": [{"value": correct_answer_value}],
+                        "pointsEarned": 1  # Или другое количество баллов
+                    }
+                    update_mask = "correctAnswers,pointsEarned"
 
-        # Выполняем batchUpdate для добавления всех элементов (поле ФИО, раздел и вопросы)
+                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index]['questionItem']['question']['questionId']
+
+                    batch_update_requests.append({
+                        "updateItemFeedback": {
+                            "itemId": question_id,
+                            "feedback": feedback,
+                            "updateMask": update_mask
+                        }
+                    })
+
+            elif question_type == "CHECKBOX":
+                question = {
+                    "createItem": {
+                        "item": {
+                            "title": question_text,
+                            "questionItem": {
+                                "question": {
+                                    "required": True,
+                                    "choiceQuestion": {
+                                        "type": "CHECKBOX",
+                                        "options": options,
+                                        "shuffle": True
+                                    }
+                                }
+                            },
+                        },
+                        "location": {
+                            "index": question_index
+                        }
+                    }
+                }
+                batch_update_requests.append(question)
+
+                # Добавляем ключ к вопросу с несколькими вариантами ответов
+                if correct_answers:
+                    feedback = {
+                        "correctAnswers": correct_answers,
+                        "pointsEarned": 1  # Или другое количество баллов
+                    }
+                    update_mask = "correctAnswers,pointsEarned"
+
+                    # Получаем ID вопроса после его создания
+                    question_id = form_service.forms().get(formId=form_id).execute()['items'][question_index]['questionItem']['question']['questionId']
+
+                    batch_update_requests.append({
+                        "updateItemFeedback": {
+                            "itemId": question_id,
+                            "feedback": feedback,
+                            "updateMask": update_mask
+                        }
+                    })
+            
+            question_index += 1  # Увеличиваем индекс для следующего вопроса
+
+        # Выполняем запросы на обновление формы
         try:
-            if batch_update_requests:
-                batch_response = form_service.forms().batchUpdate(
-                    formId=form_id,
-                    body={"requests": batch_update_requests}
-                ).execute()
+            form_service.forms().batchUpdate(formId=form_id, body={"requests": batch_update_requests}).execute()
         except HttpError as e:
             logging.error(f"Error updating form with questions: {e}")
             flash(f"Error updating form with questions: {e}")
             return redirect(url_for("home"))
 
-        # Получим информацию о созданной форме, чтобы узнать ID каждого вопроса
-        try:
-            form_info = form_service.forms().get(formId=form_id).execute()
-        except HttpError as e:
-            logging.error(f"Error getting form info: {e}")
-            flash(f"Error getting form info: {e}")
-            return redirect(url_for("home"))
-
-        # Готовим запросы для установки правильных ответов и баллов
-        grade_requests = []
-
-        # Находим все вопросы, кроме поля ФИО
-        question_items = []
-        for item in form_info.get('items', []):
-            if 'questionItem' in item and 'choiceQuestion' in item.get('questionItem', {}).get('question', {}):
-                question_items.append(item)
-
-        # Устанавливаем правильные ответы и баллы для каждого вопроса
-        for q_idx, item in enumerate(question_items):
-            item_id = item.get('itemId')
-            # Пропускаем, если нет ID
-            if not item_id:
-                continue
-
-            # Получаем данные вопроса из исходных данных таблицы
-            if q_idx < len(sheet_data):
-                row = sheet_data[q_idx]
-
-                # Определяем правильные ответы
-                correct_answers = []
-                for i, answer in enumerate(row[1:]):
-                    if answer.startswith("*"):
-                        answer_text = answer.lstrip("*")
-                        # Преобразование числовых значений в текст
-                        try:
-                            if answer_text.replace('.', '', 1).isdigit():
-                                answer_text = str(answer_text)
-                        except:
-                            pass
-                        correct_answers.append({"value": answer_text})
-
-                # Создаем запрос для установки правильных ответов и баллов за вопрос
-                update_grade_request = {
-                    "updateItemFeedback": {
-                        "itemId": item_id,
-                        "feedback": {
-                            "correctAnswers": correct_answers,
-                            "generalFeedback": {
-                                "text": "Спасибо за ваш ответ!"
-                            }
-                        }
-                    }
-                }
-                grade_requests.append(update_grade_request)
-
-        # Отправляем запросы для установки правильных ответов и баллов за вопросы
-        try:
-            if grade_requests:
-                grade_response = form_service.forms().batchUpdate(
-                    formId=form_id,
-                    body={"requests": grade_requests}
-                ).execute()
-        except HttpError as e:
-            logging.error(f"Error updating correct answers: {e}")
-            flash(f"Error updating correct answers: {e}")
-            return redirect(url_for("home"))
-
-        if access_check["access"] == "limited":
-            update_last_used(user_email)
-
+        # Обновляем время последнего использования
+        update_last_used(user_email)
+        
         return redirect(url_for("home"))
 
+    except HttpError as e:
+        logging.error(f"Google Forms API error: {e}")
+        flash(f"Google Forms API error: {e}")
+        return redirect(url_for("home"))
     except Exception as e:
-        logging.error(f"Error creating form: {e}")
-        flash(f"Произошла ошибка при создании формы: {e}")
+        logging.error(f"Произошла ошибка: {e}")
+        flash(f"Произошла ошибка: {e}")
         return redirect(url_for("home"))
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

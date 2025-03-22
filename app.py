@@ -222,7 +222,7 @@ def create_form():
         try:
             form_response = form_service.forms().create(body=form_data).execute()
             form_id = form_response.get("formId")
-            edit_link = form_response.get("responderUri")
+            #edit_link = form_response.get("responderUri")
             
         except HttpError as e:
             logging.error(f"Error creating form: {e}")
@@ -449,6 +449,7 @@ def create_form():
 
         # Возвращаем ссылку на созданную форму
         form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
+        edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"
         #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
         #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
         flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')

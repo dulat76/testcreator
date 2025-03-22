@@ -13,7 +13,7 @@ from google.auth import default
 
 # Настройки приложения
 app = Flask(__name__)
-app.config['APPLICATION_ROOT'] = '/test_creator_v4'
+#app.config['APPLICATION_ROOT'] = '/test_creator_v4'
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

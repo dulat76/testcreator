@@ -69,6 +69,7 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         if any(user_email == row[0] for row in unlimited_users):
+            subscription_expiry_date = str(row[1])
             return {"access": "unlimited"}
 
         # Проверка лимитных пользователей
@@ -221,6 +222,8 @@ def create_form():
         try:
             form_response = form_service.forms().create(body=form_data).execute()
             form_id = form_response.get("formId")
+            edit_link = form_response.get("responderUri")
+            
         except HttpError as e:
             logging.error(f"Error creating form: {e}")
             flash(f"Error creating form: {e}")
@@ -447,6 +450,8 @@ def create_form():
         # Возвращаем ссылку на созданную форму
         form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
         flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
+        flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
+        flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 
     except Exception as e:

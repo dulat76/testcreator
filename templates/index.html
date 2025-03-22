@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Form Creator</title>
+    <title>Создание теста в Google форме</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -137,7 +137,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Create a Google Form</h1>
+        <h1>Создание теста в Google форме</h1>
 
         {% with messages = get_flashed_messages() %}
           {% if messages %}
@@ -157,14 +157,14 @@
             <!-- Форма для ввода ссылки на таблицу -->
             <form method="post" action="/create_form" onsubmit="showLoading()">
                 <label for="spreadsheet_url">Google Sheet URL:</label><br>
-                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Paste your Google Sheet URL here"><br>
-                <input type="submit" value="Create Form">
+                <input type="text" id="spreadsheet_url" name="spreadsheet_url" placeholder="Вставьте ссылку на гугл таблицу"><br>
+                <input type="submit" value="Создать тест">
             </form>
 
             <!-- Анимация загрузки -->
             <div id="loading">
                 <div class="spinner"></div>
-                <p>Creating your form, please wait...</p>
+                <p>Создаю Вашу форму, подождите пожалуйста...</p>
             </div>
 
             <!-- Информация о подписке для безлимитных пользователей -->

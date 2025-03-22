@@ -2,27 +2,46 @@
 <html>
 <head>
     <title>Form Creator</title>
+    <script>
+      async function createForm() {
+          const spinner = document.getElementById('spinner');
+          const resultDiv = document.getElementById('result');
+          spinner.style.display = 'block';
+          resultDiv.innerHTML = '';
+
+          const formData = new FormData(document.getElementById('form'));
+          const response = await fetch('/create_form', {
+              method: 'POST',
+              body: formData,
+          });
+
+          spinner.style.display = 'none';
+          if (response.ok) {
+              const data = await response.json();
+              resultDiv.innerHTML =
+                  `<p>Ссылка на форму: <a href="${data.form_link}" target="_blank">${data.form_link}</a></p>
+                   <p>Ссылка на редактирование: <a href="${data.edit_link}" target="_blank">${data.edit_link}</a></p>
+                   <p>Подписка действует до: ${data.subscription_expiry_date}</p>`;
+          } else {
+              resultDiv.innerHTML =
+                  '<p>Произошла ошибка при создании формы.</p>';
+          }
+      }
+    </script>
 </head>
 <body>
-    <h1>Create a Google Form</h1>
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul>
-        {% for message in messages %}
-          <li>{{ message }}</li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-    {% if session['user_email'] %}
-        <p>Logged in as: {{ session['user_email'] }}</p>
-        <form method="post" action="/create_form">
-            <label for="spreadsheet_url">Google Sheet URL:</label><br>
-            <input type="text" id="spreadsheet_url" name="spreadsheet_url"><br><br>
-            <input type="submit" value="Create Form">
-        </form>
-    {% else %}
-        <a href="/login">Login with Google</a>
-    {% endif %}
+  <h1>Create a Google Form</h1>
+  {% if session['user_email'] %}
+      <p>Logged in as: {{ session['user_email'] }}</p>
+      <form id="form" onsubmit="event.preventDefault(); createForm();">
+          <label for="spreadsheet_url">Google Sheet URL:</label><br>
+          <input type="text" id="spreadsheet_url" name="spreadsheet_url"><br><br>
+          <button type="submit">Create Form</button>
+      </form>
+      <div id="spinner" style="display:none;">Создание формы...</div>
+      <div id="result"></div>
+  {% else %}
+      <a href="/login">Login with Google</a>
+  {% endif %}
 </body>
 </html>

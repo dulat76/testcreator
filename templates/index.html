@@ -83,8 +83,8 @@
         <!-- Ссылки после создания формы -->
         {% if form_links %}
           <div class="success-links">
-              <a href="{{ form_links.view_url }}" target="_blank">View Form</a>
-              <a href="{{ form_links.edit_url }}" target="_blank">Edit Form</a>
+              <a href="{{ form_links.view_url | safe}}" target="_blank">View Form</a>
+              <a href="{{ form_links.edit_url | safe}}" target="_blank">Edit Form</a>
           </div>
         {% endif %}
 

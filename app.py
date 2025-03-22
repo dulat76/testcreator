@@ -32,6 +32,43 @@ SCOPES = [
     "openid"
 ]
 
+def add_user_to_limited(user_email):
+    """Добавление нового пользователя в таблицу лимитных пользователей"""
+    try:
+        credentials = get_google_credentials()
+        if not credentials:
+            return {"error": "Could not retrieve Google credentials."}
+
+        sheets_service = build("sheets", "v4", credentials=credentials)
+
+        # Получаем текущий список пользователей
+        limited_users = sheets_service.spreadsheets().values().get(
+            spreadsheetId=USERS_LIMITED,
+            range="A:A"
+        ).execute().get("values", [])
+
+        # Проверяем, существует ли пользователь уже в таблице
+        if any(user_email == row[0] for row in limited_users):
+            return {"message": "User already exists."}
+
+        # Добавляем нового пользователя с текущей датой
+        new_user_row = [user_email, datetime.now().isoformat()]
+        sheets_service.spreadsheets().values().append(
+            spreadsheetId=USERS_LIMITED,
+            range="A1",
+            valueInputOption="RAW",
+            body={"values": [new_user_row]}
+        ).execute()
+
+        return {"message": "User added successfully."}
+
+    except HttpError as e:
+        logging.error(f"Ошибка Google Sheets API: {e}")
+        return {"error": str(e)}
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении пользователя: {e}")
+        return {"error": "Произошла ошибка при добавлении пользователя."}
+    
 def get_google_credentials():
     """Получение учетных данных Google из сессии."""
     credentials_json = session.get("credentials")
@@ -159,6 +196,9 @@ def callback():
         user_info = oauth2_service.userinfo().get().execute()
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
+
+         # Добавляем пользователя в таблицу лимитных пользователей, если его там нет
+        add_user_to_limited(session["user_email"])
 
         return redirect(url_for("home"))
     except FileNotFoundError:

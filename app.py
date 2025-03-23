@@ -48,7 +48,7 @@ def add_user_to_limited(user_email):
         ).execute().get("values", [])
 
         # Проверяем, существует ли пользователь уже в таблице
-        if limited_users and any(user_email == row[0] for row in limited_users):
+        if limited_users and any(user_email == row[0] for row in limited_users if row):
             return {"message": "User already exists."}
 
         # Добавляем нового пользователя с текущей датой
@@ -69,7 +69,44 @@ def add_user_to_limited(user_email):
     except Exception as e:
         logging.error(f"Ошибка при добавлении пользователя: {e}")
         return {"error": f"Произошла ошибка при добавлении пользователя: {str(e)}"}
-    
+
+def add_user_to_unlimited(user_email):
+    """Добавление нового пользователя в таблицу безлимитных пользователей"""
+    try:
+        credentials = get_google_credentials()
+        if not credentials:
+            return {"error": "Could not retrieve Google credentials."}
+
+        sheets_service = build("sheets", "v4", credentials=credentials)
+
+        # Получаем текущий список пользователей
+        unlimited_users = sheets_service.spreadsheets().values().get(
+            spreadsheetId=USERS_UNLIMITED,
+            range="A:A"  # Проверяем только колонку с email
+        ).execute().get("values", [])
+
+        # Проверяем, существует ли пользователь уже в таблице
+        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row):
+            return {"message": "User already exists in unlimited users."}
+
+        # Добавляем нового пользователя
+        new_user_row = [user_email, datetime.now().isoformat()]
+        result = sheets_service.spreadsheets().values().append(
+            spreadsheetId=USERS_UNLIMITED,
+            range="A:B",
+            valueInputOption="RAW",
+            body={"values": [new_user_row]}
+        ).execute()
+        
+        logging.info(f"User add to unlimited result: {result}")
+        return {"message": "User added to unlimited successfully."}
+
+    except HttpError as e:
+        logging.error(f"Ошибка Google Sheets API при добавлении безлимитного пользователя: {e}")
+        return {"error": str(e)}
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении безлимитного пользователя: {e}")
+        return {"error": f"Произошла ошибка при добавлении безлимитного пользователя: {str(e)}"}
     
 def get_google_credentials():
     """Получение учетных данных Google из сессии."""
@@ -108,9 +145,8 @@ def check_user_access(user_email):
             range="A:A"
         ).execute().get("values", [])
 
-        if any(user_email == row[0] for row in unlimited_users):
+        if unlimited_users and any(user_email == row[0] for row in unlimited_users if row):
             return {"access": "unlimited"}
-            #subscription_expiry_date = row[1]
 
         # Проверка лимитных пользователей
         limited_users = sheets_service.spreadsheets().values().get(
@@ -119,17 +155,22 @@ def check_user_access(user_email):
         ).execute().get("values", [])
 
         for row in limited_users:
-            if user_email == row[0]:
-                try:
-                    last_used = datetime.fromisoformat(row[1])
-                    if datetime.now() - last_used < timedelta(hours=24):
-                        return {"error": "Превышен лимит использования."}
-                except ValueError:
-                    logging.warning(f"Неверный формат даты в строке: {row}")
-                    return {"error": "Неверный формат даты."}
+            if len(row) > 0 and user_email == row[0]:
+                if len(row) > 1:
+                    try:
+                        last_used = datetime.fromisoformat(row[1])
+                        if datetime.now() - last_used < timedelta(hours=24):
+                            return {"error": "Превышен лимит использования."}
+                    except ValueError:
+                        logging.warning(f"Неверный формат даты в строке: {row}")
+                        return {"error": "Неверный формат даты."}
                 return {"access": "limited"}
 
-        return {"error": "Не авторизован."}
+        # Если пользователь не найден, добавляем его в лимитные
+        add_result = add_user_to_limited(user_email)
+        if "error" in add_result:
+            return {"error": add_result["error"]}
+        return {"access": "limited"}
 
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
@@ -152,13 +193,14 @@ def update_last_used(user_email):
         ).execute().get("values", [])
 
         for i, row in enumerate(limited_users):
-            if row[0] == user_email:
+            if row and row[0] == user_email:
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=USERS_LIMITED,
-                    range=f"B{i+2}",
+                    range=f"B{i+1}",  # Индексация начинается с 1 в Google Sheets
                     valueInputOption="RAW",
                     body={"values": [[datetime.now().isoformat()]]}
                 ).execute()
+                logging.info(f"Updated last_used time for user {user_email}")
                 break
     except HttpError as e:
         logging.error(f"Ошибка Google Sheets API: {e}")
@@ -185,7 +227,6 @@ def login():
         flash("Произошла ошибка во время входа.")
         return redirect(url_for("home"))
 
-# Изменение в маршруте callback
 @app.route("/callback")
 def callback():
     try:
@@ -200,14 +241,9 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        # В зависимости от логики приложения выберите один из вариантов:
-        # Вариант 1: если новые пользователи должны быть безлимитными
+        # Добавляем пользователя в безлимитные (в соответствии с комментарием)
         result = add_user_to_unlimited(session["user_email"])
-        logging.info(f"Add user result: {result}")
-        
-        # Вариант 2: если исправляем функцию добавления в лимитные
-        # result = add_user_to_limited(session["user_email"])
-        # logging.info(f"Add user result: {result}")
+        logging.info(f"Add user to unlimited result: {result}")
 
         return redirect(url_for("home"))
     except FileNotFoundError:
@@ -272,7 +308,6 @@ def create_form():
         try:
             form_response = form_service.forms().create(body=form_data).execute()
             form_id = form_response.get("formId")
-            #edit_link = form_response.get("responderUri")
             
         except HttpError as e:
             logging.error(f"Error creating form: {e}")
@@ -495,15 +530,13 @@ def create_form():
             return redirect(url_for("home"))
 
         # Обновляем время последнего использования для лимитных пользователей
-        update_last_used(user_email)
+        if access_check.get("access") == "limited":
+            update_last_used(user_email)
 
         # Возвращаем ссылку на созданную форму
         form_url = f"https://docs.google.com/forms/d/{form_id}/viewform"
         edit_link = f"https://docs.google.com/forms/d/{form_id}/edit"
-        #flash(f'Форма успешно создана! <a href="{form_url}" target="_blank">Просмотреть форму</a>')
-        #flash(f'<a href="{edit_link}" target="_blank">Редкатировать тест</a>')
         flash(f' <a href="{form_url}" target="_blank">Просмотреть форму</a> &nbsp;|&nbsp; <a href="{edit_link}" target="_blank">Редактировать тест</a>')
-        #flash(f'Подписка действительна до {subscription_expiry_date}')
         return redirect(url_for("home"))
 
     except Exception as e:

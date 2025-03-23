@@ -45,8 +45,11 @@ def add_user_to_limited(user_email):
         limited_users = sheets_service.spreadsheets().values().get(
             spreadsheetId=USERS_LIMITED,
             range="A:A"  # Проверяем только колонку с email
-            flash(f' {spreadsheetId}')
+            
         ).execute().get("values", [])
+        
+        # Отправляем сообщение через flash
+        flash(f'Spreadsheet ID: {USERS_LIMITED}')
 
         # Проверяем, существует ли пользователь уже в таблице
         if limited_users and any(user_email == row[0] for row in limited_users if row):

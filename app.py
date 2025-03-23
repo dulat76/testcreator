@@ -48,18 +48,19 @@ def add_user_to_limited(user_email):
         ).execute().get("values", [])
 
         # Проверяем, существует ли пользователь уже в таблице
-        if any(user_email == row[0] for row in limited_users):
+        if limited_users and any(user_email == row[0] for row in limited_users):
             return {"message": "User already exists."}
 
         # Добавляем нового пользователя с текущей датой
         new_user_row = [user_email, datetime.now().isoformat()]
-        sheets_service.spreadsheets().values().append(
+        result = sheets_service.spreadsheets().values().append(
             spreadsheetId=USERS_LIMITED,
             range="A:B",  # Указываем диапазон для добавления данных в колонки A и B
             valueInputOption="RAW",
             body={"values": [new_user_row]}
         ).execute()
-
+        
+        logging.info(f"User add result: {result}")
         return {"message": "User added successfully."}
 
     except HttpError as e:
@@ -67,7 +68,7 @@ def add_user_to_limited(user_email):
         return {"error": str(e)}
     except Exception as e:
         logging.error(f"Ошибка при добавлении пользователя: {e}")
-        return {"error": "Произошла ошибка при добавлении пользователя."}
+        return {"error": f"Произошла ошибка при добавлении пользователя: {str(e)}"}
     
     
 def get_google_credentials():
@@ -184,6 +185,7 @@ def login():
         flash("Произошла ошибка во время входа.")
         return redirect(url_for("home"))
 
+# Изменение в маршруте callback
 @app.route("/callback")
 def callback():
     try:
@@ -198,8 +200,14 @@ def callback():
         session["user_email"] = user_info["email"]
         logging.info(f"User {session['user_email']} logged in successfully.")
 
-        # Добавляем пользователя в таблицу лимитных пользователей, если его там нет
-        add_user_to_limited(session["user_email"])
+        # В зависимости от логики приложения выберите один из вариантов:
+        # Вариант 1: если новые пользователи должны быть безлимитными
+        result = add_user_to_unlimited(session["user_email"])
+        logging.info(f"Add user result: {result}")
+        
+        # Вариант 2: если исправляем функцию добавления в лимитные
+        # result = add_user_to_limited(session["user_email"])
+        # logging.info(f"Add user result: {result}")
 
         return redirect(url_for("home"))
     except FileNotFoundError:

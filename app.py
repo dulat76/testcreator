@@ -25,7 +25,7 @@ USERS_UNLIMITED = os.getenv("UNLIMITED_USERS_SHEET")
 CLIENT_SECRETS_FILE = "client_secrets.json"
 SCOPES = [
     "https://www.googleapis.com/auth/forms.body",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/drive.file",

@@ -9,13 +9,16 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from google.auth import default
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения из файла .env
+load_dotenv()
 
 # Настройки приложения
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super_secret_key")  # Используйте переменные окружения
 logging.basicConfig(
-    filename='app.log',  # Логирование в файл
+    filename='/var/www/testcreator/app.log',  # Логирование в файл
     level=logging.DEBUG,  # Уровень логирования DEBUG для отладки
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
